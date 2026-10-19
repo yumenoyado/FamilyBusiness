@@ -15,7 +15,7 @@
 
   // ---------------- state ----------------
   const S = {
-    settings: { url: '', key: '', density: 1, autosave: 3, readback: false },
+    settings: { url: '', key: '', session: '', email: '', density: 1, autosave: 3, readback: false },
     entries: [],     // all entries (incl. Deleted status)
     workers: [],
     queue: [],       // pending ops for the sheet
@@ -32,27 +32,39 @@
   const active = () => S.entries.filter(e => e.status !== 'Deleted');
   const ctx = () => ({ density: +S.settings.density || 1, workers: S.workers, today: new Date() });
   const pendingIds = () => new Set(S.queue.map(o => (o.entry && o.entry.id) || o.id).filter(Boolean));
+  const configured = () => !!(S.settings.url && (S.settings.session || S.settings.key));
 
   // ---------------- backend ----------------
-  async function call(action, extra) {
-    if (!S.settings.url || !S.settings.key) throw new Error('not-configured');
+  // POST to the Apps Script web app. `auth` = { session } or { key }.
+  async function post(url, body) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 25000);
     try {
-      const res = await fetch(S.settings.url, {
+      const res = await fetch(url, {
         method: 'POST', redirect: 'follow', signal: ctl.signal,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(Object.assign({ action, key: S.settings.key }, extra || {}))
+        body: JSON.stringify(body)
       });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'server-error');
-      return data;
+      return await res.json();
     } finally { clearTimeout(timer); }
+  }
+  const authBody = () => S.settings.session ? { session: S.settings.session } : { key: S.settings.key };
+  async function call(action, extra) {
+    if (!configured()) throw new Error('not-configured');
+    const data = await post(S.settings.url, Object.assign({ action }, authBody(), extra || {}));
+    if (!data.ok) {
+      if (data.error === 'unauthorized' && S.settings.session) {   // session expired or revoked
+        S.settings.session = ''; S.settings.email = ''; KV.set('settings', S.settings);
+        if (currentView === 'settings') renderAuth();
+      }
+      throw new Error(data.error || 'server-error');
+    }
+    return data;
   }
 
   async function flush() {
     if (!S.queue.length) return true;
-    if (!navigator.onLine || !S.settings.url) return false;
+    if (!navigator.onLine || !configured()) return false;
     const ops = S.queue.slice(0, 50);
     await call('sync', { ops });
     S.queue = S.queue.slice(ops.length);
@@ -62,7 +74,7 @@
 
   async function sync(pull) {
     if (S.syncing) return;
-    if (!S.settings.url || !S.settings.key) { renderSyncBadge(); return; }
+    if (!configured()) { renderSyncBadge(); return; }
     S.syncing = true; renderSyncBadge();
     try {
       await flush();
@@ -149,8 +161,25 @@
   // ---------------- voice ----------------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-  let voiceOK = !!SR && !standalone;
-  let rec = null, listening = false, lastInputWasVoice = false;
+  const UA = navigator.userAgent;
+  const iOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const otherIOSBrowser = iOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(UA);
+  let lastVoiceError = '';
+  let rec = null, listening = false, lastInputWasVoice = false, watchdog = null;
+
+  // Plain-language reason + fix when the in-app mic cannot work here.
+  function voiceProblem(err) {
+    if (otherIOSBrowser) return 'On iPhone the app\'s mic only works in Safari. Open this page in Safari.';
+    if (standalone && iOS && (!err || err === 'not-allowed' || err === 'service-not-allowed' || err === 'timeout')) return 'iPhone blocks the app\'s mic when it is opened as a Home Screen web app. Open the page in Safari instead (see Settings).';
+    if (!SR) return 'This browser has no speech recognition. On iPhone, open the page in Safari.';
+    if (!err) return '';
+    if (err === 'not-allowed') return 'Microphone access is blocked. Allow it: iPhone Settings → Apps → Safari → Microphone → Allow, then tap the mic again.';
+    if (err === 'service-not-allowed') return 'Speech recognition is turned off. Turn on Settings → General → Keyboard → Enable Dictation (and Siri), then tap the mic again.';
+    if (err === 'network') return 'Speech recognition needs an internet connection. Try again when you have signal.';
+    if (err === 'audio-capture') return 'No microphone was found, or another app is using it.';
+    if (err === 'timeout') return 'The microphone did not start. Close other apps using the mic and tap again.';
+    return 'Voice error: ' + err + '. Tap the mic to try again.';
+  }
 
   function setMic(on, status) {
     listening = on;
@@ -159,13 +188,21 @@
   }
 
   function startListening(forCommand) {
-    if (!voiceOK) { useDictation(); return; }
+    if (!SR || otherIOSBrowser) { lastVoiceError = 'unsupported'; setMic(false, voiceProblem('')); renderVoiceSupport(); return; }
     stopListening();
-    let finalText = '';
+    let finalText = '', started = false;
     try {
       rec = new SR();
       rec.lang = 'en-IN'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+      const thisRec = rec;
+      const markStarted = () => { if (!started) { started = true; clearTimeout(watchdog); } };
+      rec.onstart = markStarted;
+      rec.onaudiostart = markStarted;
+      // iOS can hang silently: if the mic never starts, stop and say so
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => { if (!started && rec === thisRec) { try { thisRec.abort(); } catch (e) { /* ignore */ } rec = null; lastVoiceError = 'timeout'; setMic(false, voiceProblem('timeout')); renderVoiceSupport(); } }, 6000);
       rec.onresult = ev => {
+        markStarted();
         let interim = '';
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
           const r = ev.results[i];
@@ -176,36 +213,37 @@
       };
       rec.onspeechstart = () => { if (S.pending) pauseCountdown(); };
       rec.onerror = ev => {
+        markStarted();
+        if (ev.error === 'aborted') return;
+        lastVoiceError = ev.error === 'no-speech' ? '' : ev.error;
         if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
-          voiceOK = false;
-          setMic(false, 'Microphone not allowed. Use the keyboard mic in the box below.');
+          setMic(false, voiceProblem(ev.error));
           renderVoiceSupport();
         } else if (ev.error === 'no-speech') {
           setMic(false, S.pending ? undefined : 'Didn\'t hear anything. Tap to try again.');
-        } else if (ev.error !== 'aborted') {
-          setMic(false, 'Voice error: ' + ev.error);
+        } else {
+          setMic(false, voiceProblem(ev.error));
         }
       };
       rec.onend = () => {
+        markStarted();
         const text = finalText.trim();
-        rec = null;
+        if (rec === thisRec) rec = null;
+        if (lastVoiceError && !text) { listening = false; $('#micBtn').classList.remove('listening'); return; }   // keep the error message on screen
         setMic(false);
         if (text) { lastInputWasVoice = true; handleUtterance(text); }
         else if (S.pending && countdownPaused) resumeCountdown();
       };
+      lastVoiceError = '';
       rec.start();
-      setMic(true, forCommand ? 'Listening for "save" or "delete"…' : 'Listening…');
+      setMic(true, forCommand ? 'Listening for "save" or "delete"…' : 'Listening… speak now');
     } catch (err) {
+      clearTimeout(watchdog);
       rec = null;
-      setMic(false, forCommand ? undefined : 'Could not start the mic. Use the keyboard mic below.');
+      if (!forCommand) setMic(false, voiceProblem(err && err.name === 'NotAllowedError' ? 'not-allowed' : 'start-failed'));
     }
   }
-  function stopListening() { if (rec) { try { rec.abort(); } catch (e) { /* ignore */ } rec = null; } if (listening) setMic(false); }
-  function useDictation() {
-    const i = $('#dictInput');
-    i.focus();
-    $('#micStatus').textContent = 'Tap the mic key on your keyboard, speak, then tap Go';
-  }
+  function stopListening() { clearTimeout(watchdog); if (rec) { try { rec.abort(); } catch (e) { /* ignore */ } rec = null; } if (listening) setMic(false); }
   function speak(text) {
     if (!S.settings.readback || !window.speechSynthesis) return;
     try { const u = new SpeechSynthesisUtterance(text); u.lang = 'en-IN'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { /* ignore */ }
@@ -249,7 +287,7 @@
   }
   function listenForCommand() {
     // keep the mic open for "save" / "delete" when the entry came by voice
-    if (lastInputWasVoice && voiceOK) setTimeout(() => { if (S.pending && !listening) startListening(true); }, 350);
+    if (lastInputWasVoice && SR && !lastVoiceError) setTimeout(() => { if (S.pending && !listening) startListening(true); }, 350);
   }
   function startCountdown(ms) {
     cdLeft = ms; countdownPaused = false; runCountdown();
@@ -371,15 +409,14 @@
   const kpi = (label, value, cls, note) => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls || ''}">${value}</div>${note ? `<div class="note">${note}</div>` : ''}</div>`;
 
   function renderHome() {
-    const t = today(), m = t.slice(0, 7);
+    const t = today(), m = t.slice(0, 7), fy = P.financialYear(t);
     const a = active();
-    const td = totals(a.filter(e => e.date === t));
-    $('#todayKpis').innerHTML = kpi('Latex collected', `${num(td.latexKg)} kg`, '', `${num(td.dry)} kg dry rubber`) +
-      kpi('Income', inr(td.income), 'pos') + kpi('Expense', inr(td.expense), 'neg') + kpi('Profit', inr(td.profit), td.profit >= 0 ? 'pos' : 'neg');
-    const mt = totals(a.filter(e => e.month === m));
+    const block = list => { const x = totals(list); return kpi('Income', inr(x.income), 'pos') + kpi('Expense', inr(x.expense), 'neg') +
+      kpi('Profit', inr(x.profit), x.profit >= 0 ? 'pos' : 'neg') + kpi('Dry rubber', `${num(x.dry)} kg`, '', `${num(x.latexKg)} kg latex (wet)`); };
     $('#monthTitle').textContent = fmtMonth(m);
-    $('#monthKpis').innerHTML = kpi('Income', inr(mt.income), 'pos') + kpi('Expense', inr(mt.expense), 'neg') +
-      kpi('Profit', inr(mt.profit), mt.profit >= 0 ? 'pos' : 'neg') + kpi('Dry rubber', `${num(mt.dry)} kg`);
+    $('#monthKpis').innerHTML = block(a.filter(e => e.month === m));
+    $('#fyTitle').textContent = `${fy} (April–March)`;
+    $('#fyKpis').innerHTML = block(a.filter(e => e.fy === fy));
     const recent = a.slice().sort((x, y) => (y.createdAt || y.date).localeCompare(x.createdAt || x.date)).slice(0, 6);
     $('#recentList').innerHTML = recent.length ? recent.map(entryLi).join('') : '<li class="empty">No entries yet — tap "Speak an entry"</li>';
   }
@@ -595,14 +632,93 @@
   // ---------------- settings & workers ----------------
   function renderSettings() {
     $('#sUrl').value = S.settings.url; $('#sKey').value = S.settings.key;
+    renderAuth();
     $('#sDensity').value = S.settings.density; $('#sAuto').value = S.settings.autosave; $('#sReadback').checked = !!S.settings.readback;
     const link = $('#sheetLink'); link.hidden = !S.sheetUrl; if (S.sheetUrl) link.href = S.sheetUrl;
     renderWorkers(); renderVoiceSupport();
   }
+  // ---------------- Google sign-in ----------------
+  let gisLoaded = null, gisClientId = '';
+  const cfgCache = {};   // Web App URL -> OAuth client id ('' when not set up)
+  function loadGis() {
+    if (!gisLoaded) gisLoaded = new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true;
+      sc.onload = resolve; sc.onerror = () => { gisLoaded = null; reject(new Error('gis-load')); };
+      document.head.appendChild(sc);
+    });
+    return gisLoaded;
+  }
+  function authStatus(html) { $('#authStatus').innerHTML = html; }
+  function renderAuth() {
+    const signedIn = !!S.settings.session;
+    $('#signOutBtn').hidden = !signedIn;
+    $('#gBtn').hidden = signedIn;
+    if (signedIn) { authStatus(`Signed in with Google as <b>${esc(S.settings.email)}</b>.`); return; }
+    if (S.settings.key && S.settings.url) authStatus('Connected with the access key. You can also sign in with Google:');
+    setupGoogle();
+  }
+  async function setupGoogle() {
+    const url = ($('#sUrl').value || S.settings.url || '').trim();
+    if (!url) { authStatus('Enter the Web App URL above, tap <b>Save settings</b>, then sign in with Google.'); return; }
+    if (!navigator.onLine) { authStatus('Google sign-in needs an internet connection.'); return; }
+    try {
+      if (!(url in cfgCache)) {
+        const r = await post(url, { action: 'config' });
+        if (!r.ok || r.app !== 'rubber-ledger') { authStatus('That URL is not the Rubber Ledger web app. Check the Web App URL.'); return; }
+        cfgCache[url] = r.clientId || '';
+      }
+      const cfg = { clientId: cfgCache[url] };
+      if (!cfg.clientId) { authStatus('Google sign-in is not set up in the script yet: add your OAuth Client ID to <b>Code.gs</b> (see README). Meanwhile you can use an access key.'); return; }
+      await loadGis();
+      if (gisClientId !== cfg.clientId) {
+        google.accounts.id.initialize({ client_id: cfg.clientId, callback: onGoogleCredential, ux_mode: 'popup', auto_select: false, cancel_on_tap_outside: true });
+        gisClientId = cfg.clientId;
+      }
+      const box = $('#gBtn'); box.innerHTML = '';
+      google.accounts.id.renderButton(box, { type: 'standard', theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', width: 260 });
+      if (!S.settings.key) authStatus('Sign in with the Google account that is allowed to use your sheet.');
+    } catch (err) {
+      authStatus(err.message === 'gis-load' ? 'Could not load Google sign-in. Check the connection and open Settings again.' : 'Could not reach the Web App URL. Check it and try again.');
+    }
+  }
+  async function onGoogleCredential(resp) {
+    const url = ($('#sUrl').value || S.settings.url || '').trim();
+    authStatus('Signing in…');
+    try {
+      const r = await post(url, { action: 'login', idToken: resp.credential });
+      if (!r.ok) {
+        const msg = {
+          'not-allowed': `<b>${esc(r.email || 'This account')}</b> is not allowed for this sheet. Add it in the sheet: Rubber Ledger → Allowed Google accounts.`,
+          'google-not-configured': 'Google sign-in is not set up in the script yet (OAuth Client ID missing in Code.gs).',
+          'invalid-token': 'Google sign-in could not be verified. Please try again.'
+        }[r.error] || ('Sign-in failed: ' + esc(r.error || 'unknown error'));
+        authStatus(msg); return;
+      }
+      S.settings.url = url; S.settings.session = r.session; S.settings.email = r.email;
+      await persist();
+      toast(`Signed in as ${r.email}`);
+      S.lastSyncError = '';
+      renderAuth(); renderSyncBadge(); sync(true);
+    } catch (err) {
+      authStatus('Could not reach the Web App URL. Check it and try again.');
+    }
+  }
+  async function signOut() {
+    try { if (S.settings.session) await post(S.settings.url, { action: 'logout', session: S.settings.session }); } catch (e) { /* offline: forget locally */ }
+    S.settings.session = ''; S.settings.email = '';
+    await persist();
+    try { if (window.google && google.accounts) google.accounts.id.disableAutoSelect(); } catch (e) { /* ignore */ }
+    toast('Signed out'); renderAuth(); renderSyncBadge();
+  }
+
   function renderVoiceSupport() {
-    $('#voiceSupport').textContent = voiceOK ? 'In-app mic: available in this browser.' :
-      standalone ? 'In-app mic is not available when opened as a Home Screen web app. Open in Safari, or use the keyboard mic.' :
-        'In-app mic not available here. Use the keyboard mic in the entry box (Settings → General → Keyboard → Enable Dictation).';
+    const mode = standalone ? 'Home Screen web app' : otherIOSBrowser ? 'a browser other than Safari' : iOS ? 'Safari' : 'this browser';
+    const blocked = !SR || otherIOSBrowser || ['not-allowed', 'service-not-allowed', 'unsupported', 'timeout'].includes(lastVoiceError);
+    const problem = blocked ? voiceProblem(lastVoiceError === 'unsupported' ? '' : lastVoiceError) :
+      (standalone && iOS ? 'If the mic does not respond here, open the page in Safari.' : 'The mic button should work here.');
+    $('#voiceSupport').innerHTML = `Voice: running in <b>${mode}</b>. ${esc(problem)}` +
+      (standalone && iOS ? '<br>To open in Safari from the Home Screen: delete this icon, open the link in Safari, tap Share → Add to Home Screen and switch <b>Open as Web App</b> off.' : '');
   }
   function renderWorkers() {
     const list = $('#workerList');
@@ -632,7 +748,7 @@
   function renderSyncBadge() {
     const b = $('#syncBadge');
     b.classList.remove('pending', 'error');
-    if (!S.settings.url || !S.settings.key) { b.textContent = 'Not connected'; b.classList.add('error'); }
+    if (!configured()) { b.textContent = S.settings.url ? 'Signed out' : 'Not connected'; b.classList.add('error'); }
     else if (S.syncing) { b.textContent = 'Syncing…'; }
     else if (S.lastSyncError) { b.textContent = S.queue.length ? `${S.queue.length} not synced` : 'Sync error'; b.classList.add('error'); b.title = S.lastSyncError; }
     else if (S.queue.length) { b.textContent = `${S.queue.length} not synced`; b.classList.add('pending'); }
@@ -642,9 +758,10 @@
   function renderBanner() {
     const bn = $('#banner');
     let msg = '';
-    if (!S.settings.url || !S.settings.key) msg = 'Connect your Google Sheet in <button type="button" data-go="settings">Settings</button> to save entries to Drive. Entries are kept on this phone until then.';
+    if (!S.settings.url) msg = 'Connect your Google Sheet in <button type="button" data-go="settings">Settings</button> to save entries to Drive. Entries are kept on this phone until then.';
+    else if (!configured()) msg = 'Sign in with Google in <button type="button" data-go="settings">Settings</button> to sync. Entries are kept on this phone until then.';
     else if (S.lastSyncError === 'unauthorized') msg = 'The access key was rejected. Check it in <button type="button" data-go="settings">Settings</button>.';
-    else if (standalone) msg = 'Opened as a Home Screen web app: the in-app mic does not work here. Use the keyboard mic, or open the page in Safari.';
+    else if (otherIOSBrowser || !SR) msg = esc(voiceProblem('')) + ' <button type="button" data-go="settings">How to fix</button>';
     bn.innerHTML = msg; bn.hidden = !msg;
   }
 
@@ -654,6 +771,7 @@
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
     $$('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     if (view !== 'voice') stopListening();
+    if (view === 'settings') renderSettings();
     refreshViews();
     window.scrollTo(0, 0);
   }
@@ -661,7 +779,7 @@
     if (currentView === 'home') renderHome();
     if (currentView === 'entries') renderEntries();
     if (currentView === 'reports') renderReports();
-    if (currentView === 'settings') renderSettings();
+    if (currentView === 'settings') renderWorkers();
     if (currentView === 'voice') renderSession();
   }
 
@@ -695,19 +813,27 @@
 
     $('#settingsForm').addEventListener('submit', async ev => {
       ev.preventDefault();
-      S.settings.url = $('#sUrl').value.trim(); S.settings.key = $('#sKey').value.trim();
+      const newUrl = $('#sUrl').value.trim();
+      if (newUrl !== S.settings.url) { S.settings.session = ''; S.settings.email = ''; }   // a different sheet needs a new sign-in
+      S.settings.url = newUrl; S.settings.key = $('#sKey').value.trim();
       S.settings.density = +$('#sDensity').value || 1; S.settings.autosave = Math.max(0, +$('#sAuto').value || 0);
       S.settings.readback = $('#sReadback').checked;
-      await persist(); toast('Settings saved'); renderSyncBadge(); sync(true);
+      await persist(); toast('Settings saved'); renderAuth(); renderSyncBadge(); sync(true);
     });
+    $('#signOutBtn').addEventListener('click', signOut);
     $('#testBtn').addEventListener('click', async () => {
       const st = $('#connStatus');
-      const save = { url: S.settings.url, key: S.settings.key };
-      S.settings.url = $('#sUrl').value.trim(); S.settings.key = $('#sKey').value.trim();
+      const url = $('#sUrl').value.trim();
+      const body = S.settings.session && url === S.settings.url ? { session: S.settings.session } : { key: $('#sKey').value.trim() };
       st.textContent = 'Testing…';
-      try { const d = await call('ping'); st.textContent = `Connected to "${d.sheetName}".`; S.sheetUrl = d.sheetUrl; renderSettings(); }
-      catch (err) { st.textContent = 'Not connected: ' + (err.message === 'unauthorized' ? 'wrong access key' : err.name === 'AbortError' ? 'timed out' : err.message); }
-      finally { S.settings.url = save.url; S.settings.key = save.key; }
+      try {
+        const d = await post(url, Object.assign({ action: 'ping' }, body));
+        if (!d.ok) throw new Error(d.error || 'server-error');
+        st.textContent = `Connected to "${d.sheetName}"${d.email ? ' as ' + d.email : ''}.`; S.sheetUrl = d.sheetUrl;
+        const link = $('#sheetLink'); link.hidden = false; link.href = d.sheetUrl;
+      } catch (err) {
+        st.textContent = 'Not connected: ' + (err.message === 'unauthorized' ? (body.session ? 'sign-in expired, sign in again' : 'sign in with Google first (or enter a valid access key)') : err.name === 'AbortError' ? 'timed out' : err.message);
+      }
     });
     $('#workerForm').addEventListener('submit', ev => {
       ev.preventDefault();
