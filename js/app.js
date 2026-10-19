@@ -184,66 +184,77 @@
   function setMic(on, status) {
     listening = on;
     $('#micBtn').classList.toggle('listening', on);
-    $('#micStatus').textContent = status || (on ? 'Listening…' : (S.pending ? 'Say "save" or "delete", or tap a button' : 'Tap the mic and speak'));
+    $('#dictForm').classList.toggle('recording', on);
+    $('#micStatus').textContent = status || (on ? 'Listening… speak, then tap Go' :
+      ($('#dictInput').value.trim() ? 'Tap Go to use this text, or the mic to keep talking' :
+        (S.pending ? 'Tap Save or Delete, or tap the mic and say "save" / "delete" then Go' : 'Tap the mic and speak, then tap Go')));
   }
 
-  function startListening(forCommand) {
+  // Voice recording runs until Go is pressed. The browser may end a listening session on its own
+  // (after a pause, or on iPhone after ~60 s); we quietly start a new one and keep the text.
+  let recording = false, baseText = '', emptyRestarts = 0;
+  const joinText = (a, b) => [a, b].map(x => (x || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+
+  function startListening() {
     if (!SR || otherIOSBrowser) { lastVoiceError = 'unsupported'; setMic(false, voiceProblem('')); renderVoiceSupport(); return; }
     stopListening();
-    let finalText = '', started = false;
+    if (S.pending) pauseCountdown();
+    recording = true; emptyRestarts = 0; lastVoiceError = '';
+    baseText = $('#dictInput').value.replace(/\s+/g, ' ').trim();
+    beginSession(true);
+  }
+
+  function beginSession(first) {
+    let sessionText = '', heard = false, started = false;
     try {
       rec = new SR();
-      rec.lang = 'en-IN'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+      rec.lang = 'en-IN'; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
       const thisRec = rec;
       const markStarted = () => { if (!started) { started = true; clearTimeout(watchdog); } };
       rec.onstart = markStarted;
       rec.onaudiostart = markStarted;
-      // iOS can hang silently: if the mic never starts, stop and say so
-      clearTimeout(watchdog);
-      watchdog = setTimeout(() => { if (!started && rec === thisRec) { try { thisRec.abort(); } catch (e) { /* ignore */ } rec = null; lastVoiceError = 'timeout'; setMic(false, voiceProblem('timeout')); renderVoiceSupport(); } }, 6000);
+      if (first) {   // iOS can hang silently: if the mic never starts, stop and say so
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => { if (!started && rec === thisRec) { try { thisRec.abort(); } catch (e) { /* ignore */ } rec = null; recording = false; lastVoiceError = 'timeout'; setMic(false, voiceProblem('timeout')); renderVoiceSupport(); } }, 6000);
+      }
       rec.onresult = ev => {
-        markStarted();
-        let interim = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          const r = ev.results[i];
-          if (r.isFinal) finalText += r[0].transcript + ' '; else interim += r[0].transcript;
-        }
-        $('#transcript').textContent = (finalText + interim).trim();
+        markStarted(); heard = true; emptyRestarts = 0;
+        // each finished phrase (a pause) is followed by a space so words never run together
+        const parts = [];
+        let lastFinal = true;
+        for (let i = 0; i < ev.results.length; i++) { parts.push(ev.results[i][0].transcript.trim()); lastFinal = ev.results[i].isFinal; }
+        sessionText = parts.filter(Boolean).join(' ');
+        const shown = joinText(baseText, sessionText);
+        $('#dictInput').value = shown + (lastFinal && shown ? ' ' : '');
         if (S.pending) pauseCountdown();
       };
-      rec.onspeechstart = () => { if (S.pending) pauseCountdown(); };
       rec.onerror = ev => {
         markStarted();
-        if (ev.error === 'aborted') return;
-        lastVoiceError = ev.error === 'no-speech' ? '' : ev.error;
-        if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
-          setMic(false, voiceProblem(ev.error));
-          renderVoiceSupport();
-        } else if (ev.error === 'no-speech') {
-          setMic(false, S.pending ? undefined : 'Didn\'t hear anything. Tap to try again.');
-        } else {
-          setMic(false, voiceProblem(ev.error));
-        }
+        if (ev.error === 'aborted' || ev.error === 'no-speech') return;   // a pause: the session restarts in onend
+        lastVoiceError = ev.error;
+        recording = false;
+        setMic(false, voiceProblem(ev.error));
+        renderVoiceSupport();
       };
       rec.onend = () => {
         markStarted();
-        const text = finalText.trim();
         if (rec === thisRec) rec = null;
-        if (lastVoiceError && !text) { listening = false; $('#micBtn').classList.remove('listening'); return; }   // keep the error message on screen
-        setMic(false);
-        if (text) { lastInputWasVoice = true; handleUtterance(text); }
-        else if (S.pending && countdownPaused) resumeCountdown();
+        if (!recording) return;   // stopped by Go or the mic button: leave the box as it is
+        baseText = joinText(baseText, sessionText);
+        $('#dictInput').value = baseText ? baseText + ' ' : '';   // pause = space before the next words
+        emptyRestarts = heard ? 0 : emptyRestarts + 1;
+        if (emptyRestarts > 8) { recording = false; setMic(false, baseText ? 'Paused. Tap Go to use this text, or the mic to keep talking' : 'Didn\'t hear anything. Tap the mic to try again'); return; }
+        setTimeout(() => { if (recording && !rec) beginSession(false); }, 150);
       };
-      lastVoiceError = '';
       rec.start();
-      setMic(true, forCommand ? 'Listening for "save" or "delete"…' : 'Listening… speak now');
+      if (first) setMic(true);
     } catch (err) {
       clearTimeout(watchdog);
-      rec = null;
-      if (!forCommand) setMic(false, voiceProblem(err && err.name === 'NotAllowedError' ? 'not-allowed' : 'start-failed'));
+      rec = null; recording = false;
+      setMic(false, first ? voiceProblem(err && err.name === 'NotAllowedError' ? 'not-allowed' : 'start-failed') : 'Paused. Tap Go to use this text, or the mic to keep talking');
     }
   }
-  function stopListening() { clearTimeout(watchdog); if (rec) { try { rec.abort(); } catch (e) { /* ignore */ } rec = null; } if (listening) setMic(false); }
+  function stopListening() { recording = false; clearTimeout(watchdog); if (rec) { const r = rec; rec = null; try { r.abort(); } catch (e) { /* ignore */ } } if (listening) setMic(false); }
   function speak(text) {
     if (!S.settings.readback || !window.speechSynthesis) return;
     try { const u = new SpeechSynthesisUtterance(text); u.lang = 'en-IN'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { /* ignore */ }
@@ -285,10 +296,7 @@
     speak(spokenSummary(entry));
     listenForCommand();
   }
-  function listenForCommand() {
-    // keep the mic open for "save" / "delete" when the entry came by voice
-    if (lastInputWasVoice && SR && !lastVoiceError) setTimeout(() => { if (S.pending && !listening) startListening(true); }, 350);
-  }
+  function listenForCommand() { /* voice now waits for Go, so nothing starts listening on its own */ }
   function startCountdown(ms) {
     cdLeft = ms; countdownPaused = false; runCountdown();
   }
@@ -792,12 +800,15 @@
       if (li) { const e = S.entries.find(x => x.id === li.dataset.id); if (e && e.status !== 'Deleted') openEditor(e, false); }
       const wb = ev.target.closest('[data-wid]'); if (wb) editWorker(S.workers.find(w => w.id === wb.dataset.wid));
     });
-    $('#homeMic').addEventListener('click', () => { show('voice'); startListening(false); });
-    $('#micBtn').addEventListener('click', () => { if (listening) stopListening(); else startListening(false); });
+    $('#homeMic').addEventListener('click', () => { show('voice'); startListening(); });
+    $('#micBtn').addEventListener('click', () => { if (recording || listening) { stopListening(); if (S.pending && !$('#dictInput').value.trim()) resumeCountdown(); } else startListening(); });
     $('#dictForm').addEventListener('submit', ev => {
       ev.preventDefault();
-      const v = $('#dictInput').value.trim(); if (!v) return;
-      $('#dictInput').value = ''; lastInputWasVoice = false;
+      const wasVoice = recording || listening;
+      stopListening();
+      const v = $('#dictInput').value.trim();
+      if (!v) { setMic(false); return; }
+      $('#dictInput').value = ''; baseText = ''; lastInputWasVoice = wasVoice;
       handleUtterance(v);
     });
     $('#dictInput').addEventListener('input', () => { if (S.pending) pauseCountdown(); });
