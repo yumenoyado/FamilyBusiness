@@ -1,5 +1,5 @@
 /* Rubber Ledger service worker: caches the app so it opens without signal. */
-const CACHE = 'rubber-ledger-v1';
+const CACHE = 'rubber-ledger-v2';
 const CHART = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
 const ASSETS = ['./', 'index.html', 'styles.css', 'js/db.js', 'js/parser.js', 'js/app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
@@ -20,7 +20,7 @@ self.addEventListener('fetch', ev => {
   const req = ev.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (/script\.google(usercontent)?\.com$/.test(url.hostname)) return; // never cache sheet data
+  if (/script\.google(usercontent)?\.com$|(^|\.)google\.com$|gstatic\.com$/.test(url.hostname)) return; // never cache sheet data or Google sign-in
   if (url.href === CHART) {
     ev.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); return res; })));
     return;
