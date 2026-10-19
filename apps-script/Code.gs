@@ -4,8 +4,15 @@
  * Paste this file into Extensions → Apps Script of your "Rubber Business Ledger" Google Sheet.
  * Then run Rubber Ledger → "Set up / repair sheet" from the sheet menu (or run `setup` here once),
  * and deploy as a Web App: Execute as = Me, Who has access = Anyone.
- * Every request must carry the access key shown by Rubber Ledger → "Show access key".
+ *
+ * Sign-in: the app signs in with Google. Paste your OAuth Client ID below (README → "Google sign-in").
+ * Only the Google accounts in Rubber Ledger → "Allowed Google accounts" can use the sheet
+ * (by default, the account that owns this script). An access key is kept as a backup.
  */
+
+// Paste the OAuth Client ID from Google Cloud Console here (ends with .apps.googleusercontent.com)
+const GOOGLE_CLIENT_ID = 'PASTE-YOUR-CLIENT-ID.apps.googleusercontent.com';
+const SESSION_DAYS = 180;   // how long a phone stays signed in
 
 const TX = 'Transactions', WK = 'Workers', CAT = 'Categories', SUM = 'Summary', SET = 'Settings';
 
@@ -29,6 +36,8 @@ const DEFAULT_CATEGORIES = {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Rubber Ledger')
     .addItem('Set up / repair sheet', 'setup')
+    .addItem('Allowed Google accounts…', 'setAllowedEmails')
+    .addItem('Sign out all phones', 'signOutAll')
     .addItem('Show access key', 'showKey')
     .addItem('Create a new access key', 'resetKey')
     .addToUi();
@@ -67,8 +76,11 @@ function setup() {
   }
 
   buildSummary_(ss);
+  if (!props.getProperty('ALLOWED_EMAILS')) props.setProperty('ALLOWED_EMAILS', ownerEmail_());
   const key = getKey_();
-  const msg = 'Rubber Ledger is set up.\n\nAccess key (paste into the app Settings):\n' + key +
+  const msg = 'Rubber Ledger is set up.\n\nGoogle accounts allowed to sign in: ' + allowedEmails_().join(', ') +
+    (clientIdOk_() ? '' : '\n\nGoogle sign-in is not ready yet: paste your OAuth Client ID into GOOGLE_CLIENT_ID at the top of Code.gs.') +
+    '\n\nBackup access key (only needed if you do not use Google sign-in):\n' + key +
     '\n\nNext: Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone) and copy the Web App URL.';
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
 }
@@ -82,6 +94,76 @@ function resetKey() {
   PropertiesService.getScriptProperties().deleteProperty('ACCESS_KEY');
   const msg = 'New access key (update it in the app Settings):\n' + getKey_();
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+}
+
+function setAllowedEmails() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.prompt('Allowed Google accounts',
+    'Email addresses that may sign in to the app, separated by commas.\nCurrent: ' + allowedEmails_().join(', '),
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const list = res.getResponseText().split(',').map(x => x.trim().toLowerCase()).filter(x => /@/.test(x));
+  if (!list.length) { ui.alert('No valid email address entered; nothing changed.'); return; }
+  PropertiesService.getScriptProperties().setProperty('ALLOWED_EMAILS', list.join(','));
+  ui.alert('Allowed Google accounts: ' + list.join(', '));
+}
+
+function signOutAll() {
+  const props = PropertiesService.getScriptProperties();
+  Object.keys(props.getProperties()).filter(k => k.indexOf('S_') === 0).forEach(k => props.deleteProperty(k));
+  const msg = 'All phones are signed out. Sign in again from the app Settings.';
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+}
+
+function ownerEmail_() {
+  try { return (Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) { return ''; }
+}
+
+function allowedEmails_() {
+  const v = PropertiesService.getScriptProperties().getProperty('ALLOWED_EMAILS') || ownerEmail_();
+  return v.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+}
+
+function clientIdOk_() {
+  return /\.apps\.googleusercontent\.com$/.test(GOOGLE_CLIENT_ID) && GOOGLE_CLIENT_ID.indexOf('PASTE-') !== 0;
+}
+
+// Verify a Google ID token and, if the account is allowed, open a long-lived session for this phone.
+function login_(idToken) {
+  if (!clientIdOk_()) return { ok: false, error: 'google-not-configured' };
+  if (!idToken) return { ok: false, error: 'invalid-token' };
+  const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return { ok: false, error: 'invalid-token' };
+  const p = JSON.parse(res.getContentText());
+  const issOk = p.iss === 'accounts.google.com' || p.iss === 'https://accounts.google.com';
+  const verified = p.email_verified === true || p.email_verified === 'true';
+  if (p.aud !== GOOGLE_CLIENT_ID || !issOk || !verified || Number(p.exp) * 1000 < Date.now()) return { ok: false, error: 'invalid-token' };
+  const email = String(p.email || '').toLowerCase();
+  if (allowedEmails_().indexOf(email) < 0) return { ok: false, error: 'not-allowed', email: email };
+  const props = PropertiesService.getScriptProperties();
+  const now = Date.now();
+  const all = props.getProperties();
+  Object.keys(all).filter(k => k.indexOf('S_') === 0).forEach(k => {   // tidy expired sessions
+    try { if (JSON.parse(all[k]).exp < now) props.deleteProperty(k); } catch (e) { props.deleteProperty(k); }
+  });
+  const session = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  props.setProperty('S_' + session, JSON.stringify({ email: email, exp: now + SESSION_DAYS * 864e5 }));
+  return { ok: true, session: session, email: email, name: p.name || '' };
+}
+
+// Who is calling? A signed-in session, or the backup access key.
+function auth_(req) {
+  const props = PropertiesService.getScriptProperties();
+  if (req.session) {
+    const raw = props.getProperty('S_' + req.session);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (s.exp < Date.now() || allowedEmails_().indexOf(s.email) < 0) { props.deleteProperty('S_' + req.session); return null; }
+    return { email: s.email };
+  }
+  const key = props.getProperty('ACCESS_KEY');
+  if (key && req.key === key) return { email: '' };
+  return null;
 }
 
 function getKey_() {
@@ -125,11 +207,15 @@ function doGet() {
 function doPost(e) {
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return out_({ ok: false, error: 'bad-request' }); }
-  const key = PropertiesService.getScriptProperties().getProperty('ACCESS_KEY');
-  if (!key || !req || req.key !== key) return out_({ ok: false, error: 'unauthorized' });
+  if (!req) return out_({ ok: false, error: 'bad-request' });
   try {
+    if (req.action === 'config') return out_({ ok: true, app: 'rubber-ledger', clientId: clientIdOk_() ? GOOGLE_CLIENT_ID : '' });
+    if (req.action === 'login') return out_(login_(req.idToken));
+    const who = auth_(req);
+    if (!who) return out_({ ok: false, error: 'unauthorized' });
     switch (req.action) {
-      case 'ping': { const s = ss_(); return out_({ ok: true, sheetUrl: s.getUrl(), sheetName: s.getName() }); }
+      case 'ping': { const s = ss_(); return out_({ ok: true, sheetUrl: s.getUrl(), sheetName: s.getName(), email: who.email }); }
+      case 'logout': { if (req.session) PropertiesService.getScriptProperties().deleteProperty('S_' + req.session); return out_({ ok: true }); }
       case 'list': return out_(Object.assign({ ok: true }, listAll_()));
       case 'sync': return out_(Object.assign({ ok: true }, sync_(req.ops || [])));
       default: return out_({ ok: false, error: 'unknown-action' });
