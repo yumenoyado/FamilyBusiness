@@ -99,4 +99,4 @@ After changing `Code.gs`, use **Deploy → Manage deployments → Edit (pencil) 
 
 ## Updating the app later
 
-Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v2'` in `sw.js` to `v3`, `v4`… so phones pick up the new version.
+Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v3'` in `sw.js` to `v4`, `v5`… so phones pick up the new version.

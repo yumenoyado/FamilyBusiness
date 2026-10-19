@@ -226,4 +226,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .signin .hint { margin: 0 0 10px; }
 .signin .hint b { color: var(--ink); }
 .g-btn { min-height: 44px; }
+.go-btn { min-width: 76px; font-size: 18px; }
+.dict.recording input { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(179, 38, 30, .15); }
+.dict.recording .go-btn { animation: pulse 1.2s ease-in-out infinite; }
 [hidden] { display: none !important; }

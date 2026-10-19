@@ -1,5 +1,5 @@
 /* Rubber Ledger service worker: caches the app so it opens without signal. */
-const CACHE = 'rubber-ledger-v2';
+const CACHE = 'rubber-ledger-v3';
 const CHART = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
 const ASSETS = ['./', 'index.html', 'styles.css', 'js/db.js', 'js/parser.js', 'js/app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
