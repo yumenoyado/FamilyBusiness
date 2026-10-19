@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f6b4a">
+  <meta name="description" content="Voice-first ledger for rubber latex production, sales and expenses">
+  <title>Rubber Ledger</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Rubber Ledger</h1>
+    <button id="syncBadge" class="sync-badge" type="button" title="Sync now">Synced</button>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main>
+    <!-- HOME -->
+    <section id="view-home" class="view active" aria-label="Home">
+      <div class="card">
+        <h2>Today</h2>
+        <div class="kpis" id="todayKpis"></div>
+      </div>
+      <button class="big-mic" id="homeMic" type="button" aria-label="Start voice entry">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+        <span>Speak an entry</span>
+      </button>
+      <div class="card">
+        <h2 id="monthTitle">This month</h2>
+        <div class="kpis" id="monthKpis"></div>
+      </div>
+      <div class="card">
+        <h2>Recent entries</h2>
+        <ul class="entry-list" id="recentList"></ul>
+      </div>
+    </section>
+
+    <!-- VOICE -->
+    <section id="view-voice" class="view" aria-label="Voice entry">
+      <div class="mic-area">
+        <button class="mic" id="micBtn" type="button" aria-label="Tap to speak">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+        </button>
+        <p class="mic-status" id="micStatus">Tap the mic and speak</p>
+        <p class="transcript" id="transcript"></p>
+      </div>
+      <form class="dict" id="dictForm" autocomplete="off">
+        <input id="dictInput" type="text" enterkeyhint="go" placeholder="Type, or use the keyboard mic">
+        <button type="submit" class="btn">Go</button>
+      </form>
+      <div id="cardHost"></div>
+      <details class="help">
+        <summary>What can I say?</summary>
+        <ul>
+          <li>"Collected 38 kg latex, DRC 34"</li>
+          <li>"Sold 40 kg latex, DRC 35, at 190 to society"</li>
+          <li>"Sold 50 kg sheet at 190"</li>
+          <li>"Paid tapper Raju 800" &middot; "Suma 3 days weeding"</li>
+          <li>"Fertilizer 2 bags 1450 each" &middot; "Acid 600 yesterday"</li>
+          <li><b>save</b> &middot; <b>delete</b> &middot; <b>delete last 3</b> &middot; <b>delete amount</b> &middot; <b>change amount to 7800</b> &middot; <b>undo</b></li>
+        </ul>
+      </details>
+      <h3 class="sub">Saved this session</h3>
+      <ul class="entry-list" id="sessionList"><li class="empty">Nothing yet</li></ul>
+    </section>
+
+    <!-- ENTRIES -->
+    <section id="view-entries" class="view" aria-label="Entries">
+      <div class="filters">
+        <input type="month" id="fMonth" aria-label="Month">
+        <select id="fType" aria-label="Type">
+          <option value="">All types</option><option>Production</option><option>Income</option><option>Expense</option>
+        </select>
+        <select id="fCat" aria-label="Category"><option value="">All categories</option></select>
+      </div>
+      <div class="filter-sum" id="filterSum"></div>
+      <ul class="entry-list" id="entryList"></ul>
+      <button class="fab" id="addBtn" type="button" aria-label="Add entry manually">+</button>
+    </section>
+
+    <!-- REPORTS -->
+    <section id="view-reports" class="view" aria-label="Reports">
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn active" data-period="month">Month</button>
+        <button type="button" class="seg-btn" data-period="fy">Financial year</button>
+      </div>
+      <div class="filters">
+        <input type="month" id="rMonth" aria-label="Report month">
+        <select id="rFY" aria-label="Financial year" hidden></select>
+      </div>
+      <div id="reportBody"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view" aria-label="Settings">
+      <form class="card form" id="settingsForm">
+        <h2>Google Sheet connection</h2>
+        <label>Apps Script Web App URL<input id="sUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec" required></label>
+        <label>Access key<input id="sKey" type="password" placeholder="From the sheet: Rubber Ledger → Show access key" required></label>
+        <h2>Entry</h2>
+        <label>Latex density (kg per litre, only used if you say litres)<input id="sDensity" type="number" step="0.01" min="0.5" max="1.5"></label>
+        <label>Auto-save after (seconds, 0 = off)<input id="sAuto" type="number" step="1" min="0" max="30"></label>
+        <label class="check"><input id="sReadback" type="checkbox"> Read the entry back aloud</label>
+        <div class="row">
+          <button type="submit" class="btn primary">Save settings</button>
+          <button type="button" class="btn" id="testBtn">Test connection</button>
+        </div>
+        <p class="hint" id="connStatus"></p>
+      </form>
+
+      <div class="card">
+        <h2>Workers</h2>
+        <ul class="worker-list" id="workerList"></ul>
+        <form class="form" id="workerForm" autocomplete="off">
+          <input type="hidden" id="wId">
+          <label>Name<input id="wName" required></label>
+          <div class="grid2">
+            <label>Role<select id="wRole"><option>Tapper</option><option>Labour</option></select></label>
+            <label>Wage basis<select id="wBasis"><option>Per day</option><option>Per tapping</option><option>Monthly</option></select></label>
+          </div>
+          <div class="grid2">
+            <label>Default rate (₹)<input id="wRate" type="number" min="0" step="1"></label>
+            <label>Active<select id="wActive"><option>Yes</option><option>No</option></select></label>
+          </div>
+          <div class="row">
+            <button type="submit" class="btn primary" id="wSave">Add worker</button>
+            <button type="button" class="btn" id="wCancel" hidden>Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Data</h2>
+        <div class="row wrap">
+          <button type="button" class="btn" id="syncBtn">Sync now</button>
+          <button type="button" class="btn" id="csvBtn">Export CSV</button>
+          <a class="btn" id="sheetLink" target="_blank" rel="noopener" hidden>Open Google Sheet</a>
+        </div>
+        <p class="hint" id="voiceSupport"></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Main">
+    <button type="button" data-view="home" class="active"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+    <button type="button" data-view="entries"><svg viewBox="0 0 24 24"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg>Entries</button>
+    <button type="button" data-view="voice" class="tab-mic"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>Voice</button>
+    <button type="button" data-view="reports"><svg viewBox="0 0 24 24"><path d="M5 20V10h3v10zm5.5 0V4h3v16zM16 20v-7h3v7z"/></svg>Reports</button>
+    <button type="button" data-view="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7 7 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7 7 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7 7 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7 7 0 0 0 1.7-1l2.5 1 2-3.4zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>Settings</button>
+  </nav>
+
+  <!-- Entry editor -->
+  <dialog id="editor">
+    <form method="dialog" class="form" id="editorForm" autocomplete="off">
+      <h2 id="edTitle">Entry</h2>
+      <div class="grid2">
+        <label>Date<input type="date" id="eDate" required></label>
+        <label>Type<select id="eType"><option>Production</option><option>Income</option><option>Expense</option></select></label>
+      </div>
+      <label>Category<select id="eCat"></select></label>
+      <div class="grid2">
+        <label>Quantity<input type="number" id="eQty" step="any" min="0" inputmode="decimal"></label>
+        <label>Unit<select id="eUnit"><option value="">—</option><option>kg</option><option>litre</option><option>sheets</option><option>nos</option><option>days</option></select></label>
+      </div>
+      <div class="grid2">
+        <label>DRC %<input type="number" id="eDrc" step="any" min="0" max="100" inputmode="decimal"></label>
+        <label>Dry rubber kg<input type="number" id="eDry" step="any" readonly tabindex="-1"></label>
+      </div>
+      <div class="grid2">
+        <label id="eRateLabel">Rate (₹/unit)<input type="number" id="eRate" step="any" min="0" inputmode="decimal"></label>
+        <label>Amount (₹)<input type="number" id="eAmount" step="any" min="0" inputmode="decimal"></label>
+      </div>
+      <div class="grid2">
+        <label>Party / worker<input id="eParty" list="workerNames"></label>
+        <label>Payment<select id="ePay"><option value="">—</option><option>Cash</option><option>UPI</option><option>Bank</option><option>Credit</option></select></label>
+      </div>
+      <label>Notes<input id="eNotes"></label>
+      <p class="hint" id="eVoice"></p>
+      <div class="row">
+        <button type="button" class="btn primary" id="eSave">Save</button>
+        <button type="button" class="btn danger" id="eDelete">Delete</button>
+        <button type="button" class="btn" id="eCancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+  <datalist id="workerNames"></datalist>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span id="toastMsg"></span>
+    <button type="button" id="toastAction">Undo</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+  <script src="js/db.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
