@@ -105,7 +105,7 @@ h3.sub { font-size: 14px; color: var(--muted); margin: 20px 0 8px; text-transfor
 .transcript { min-height: 1.5em; margin: 0; color: var(--muted); font-style: italic; }
 
 .dict { display: flex; gap: 8px; margin: 8px 0 14px; }
-.dict input { flex: 1; min-width: 0; min-height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.dict textarea { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; line-height: 1.4; resize: none; height: calc(3 * 1.4em + 22px); overflow-y: auto; }
 
 .entry-card { background: var(--surface); border: 2px solid var(--brand); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
 .entry-card .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -230,6 +230,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .signin .hint b { color: var(--ink); }
 .g-btn { min-height: 44px; }
 .go-btn { min-width: 76px; font-size: 18px; }
-.dict.recording input { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(179, 38, 30, .15); }
+.dict.recording textarea { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(179, 38, 30, .15); }
 .dict.recording .go-btn { animation: pulse 1.2s ease-in-out infinite; }
 [hidden] { display: none !important; }
