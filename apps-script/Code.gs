@@ -13,6 +13,7 @@
 // Paste the OAuth Client ID from Google Cloud Console here (ends with .apps.googleusercontent.com)
 const GOOGLE_CLIENT_ID = 'PASTE-YOUR-CLIENT-ID.apps.googleusercontent.com';
 const SESSION_DAYS = 180;   // how long a phone stays signed in
+const BOOK_NAME = 'FamilyBusiness';   // the Google Sheet in your Drive: used if it exists, created if not
 
 const TX = 'Transactions', WK = 'Workers', CAT = 'Categories', SUM = 'Summary', SET = 'Settings';
 
@@ -44,10 +45,20 @@ function onOpen() {
 }
 
 function setup() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const props = PropertiesService.getScriptProperties();
-  props.setProperty('SPREADSHEET_ID', ss.getId());
+  const ss = ss_();   // finds or creates the FamilyBusiness sheet and prepares its tabs
 
+  if (!props.getProperty('ALLOWED_EMAILS')) props.setProperty('ALLOWED_EMAILS', ownerEmail_());
+  const key = getKey_();
+  const msg = 'Rubber Ledger is set up.\n\nSheet: ' + ss.getName() + '\n' + ss.getUrl() + '\n\nGoogle accounts allowed to sign in: ' + allowedEmails_().join(', ') +
+    (clientIdOk_() ? '' : '\n\nGoogle sign-in is not ready yet: paste your OAuth Client ID into GOOGLE_CLIENT_ID at the top of Code.gs.') +
+    '\n\nBackup access key (only needed if you do not use Google sign-in):\n' + key +
+    '\n\nNext: Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone) and copy the Web App URL.';
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+}
+
+// Make sure the sheet has every tab and header the app needs. Safe to run on an existing sheet: rows are kept.
+function prepareBook_(ss) {
   const tx = ensureSheet_(ss, TX, TX_HEADERS);
   tx.getRange('A:D').setNumberFormat('@');       // ID, dates, month and FY stay as plain text
   tx.getRange('Q:Q').setNumberFormat('@');
@@ -76,13 +87,8 @@ function setup() {
   }
 
   buildSummary_(ss);
-  if (!props.getProperty('ALLOWED_EMAILS')) props.setProperty('ALLOWED_EMAILS', ownerEmail_());
-  const key = getKey_();
-  const msg = 'Rubber Ledger is set up.\n\nGoogle accounts allowed to sign in: ' + allowedEmails_().join(', ') +
-    (clientIdOk_() ? '' : '\n\nGoogle sign-in is not ready yet: paste your OAuth Client ID into GOOGLE_CLIENT_ID at the top of Code.gs.') +
-    '\n\nBackup access key (only needed if you do not use Google sign-in):\n' + key +
-    '\n\nNext: Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone) and copy the Web App URL.';
-  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+  const first = ss.getSheets()[0];   // a newly created sheet starts with an empty "Sheet1": drop it
+  if (ss.getSheets().length > 1 && first.getName() === 'Sheet1' && first.getLastRow() === 0) ss.deleteSheet(first);
 }
 
 function showKey() {
@@ -229,9 +235,30 @@ function out_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// The FamilyBusiness sheet in the owner's Drive. If it exists it is used (new entries are appended);
+// if not, it is created with all tabs. Its ID is remembered; renaming or binning it makes the app look again.
 function ss_() {
-  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  const props = PropertiesService.getScriptProperties();
+  const cache = CacheService.getScriptCache();
+  const id = props.getProperty('SPREADSHEET_ID');
+  if (id && cache.get('BOOK_OK') === id) return SpreadsheetApp.openById(id);
+  if (id) {
+    try {
+      const f = DriveApp.getFileById(id);
+      if (!f.isTrashed() && f.getName() === BOOK_NAME) { cache.put('BOOK_OK', id, 600); return SpreadsheetApp.openById(id); }
+    } catch (e) { /* deleted or no access: look again */ }
+  }
+  let ss = null;
+  const files = DriveApp.getFilesByName(BOOK_NAME);
+  while (files.hasNext()) {
+    const f = files.next();
+    if (!f.isTrashed() && f.getMimeType() === MimeType.GOOGLE_SHEETS) { ss = SpreadsheetApp.openById(f.getId()); break; }
+  }
+  if (!ss) ss = SpreadsheetApp.create(BOOK_NAME);
+  prepareBook_(ss);
+  props.setProperty('SPREADSHEET_ID', ss.getId());
+  cache.put('BOOK_OK', ss.getId(), 600);
+  return ss;
 }
 
 function cellOut_(v, tz) {
