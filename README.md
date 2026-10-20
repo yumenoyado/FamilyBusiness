@@ -74,8 +74,11 @@ Examples:
 | Sold 50 kg sheet at 190 | Income · Sheet sale · ₹9,500 |
 | Paid tapper Raju 800 | Expense · Tapping wages · Raju · ₹800 |
 | Suma 3 days weeding | Expense · Weeding/labour · Suma · 3 days × her rate |
-| Fertilizer 2 bags 1450 each | Expense · Fertilizer · ₹2,900 |
+| Fertilizer 2 bags 1450 each | Expense · Fertilizer (item: Fertilizer) · ₹2,900 |
+| Bought tapping knife 450 | Expense · Equipment & repairs (item: Tapping knife) · ₹450 |
 | Acid 600 yesterday | Expense · Acid & chemicals · ₹600 · yesterday's date |
+
+For expenses, the app keeps an **item description** (what you bought or paid for) and picks the category from it. In the editor, typing a new item description updates the category; choosing a category yourself overrides it. By voice: "change item to urea".
 
 Latex is weighed in kg (wet weight). Dry rubber kg = wet kg × DRC %, and the latex sale rate is ₹ per kg of dry rubber. (If you ever say litres, the app converts with the density in Settings, default 1.0 kg per litre.)
 
@@ -103,4 +106,4 @@ After changing `Code.gs`, use **Deploy → Manage deployments → Edit (pencil) 
 
 ## Updating the app later
 
-Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v11'` in `sw.js` to `v12`, `v13`… so phones pick up the new version.
+Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v12'` in `sw.js` to `v13`, `v14`… so phones pick up the new version.

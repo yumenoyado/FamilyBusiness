@@ -174,7 +174,9 @@
         <label>Date<input type="date" id="eDate" required></label>
         <label>Type<select id="eType"><option>Production</option><option>Income</option><option>Expense</option></select></label>
       </div>
+      <label id="eItemRow">Item description<input id="eItem" placeholder="e.g. Factamfos fertilizer, tapping knife" autocomplete="off"></label>
       <label>Category<select id="eCat"></select></label>
+      <p class="hint" id="eCatHint" hidden></p>
       <div class="grid2">
         <label>Quantity<input type="number" id="eQty" step="any" min="0" inputmode="decimal"></label>
         <label>Unit<select id="eUnit"><option value="">—</option><option>kg</option><option>litre</option><option>sheets</option><option>nos</option><option>days</option></select></label>
