@@ -48,7 +48,7 @@ No keys or sheet links are stored in GitHub; they are typed into the app on the 
 
 1. **Settings → General → Keyboard → Enable Dictation** (on). Also check **Settings → Safari → Microphone** is set to *Ask* or *Allow*.
 2. Open **https://yumenoyado.github.io/FamilyBusiness/** in **Safari**.
-3. In the app, open **Settings**, paste the **Web App URL**, type your **Google ID** (the Gmail address that owns the sheet, e.g. prakashrtvm@gmail.com), tap **Save settings**, then tap **Sign in with Google**. Google pre-selects that account; if a different one is picked, the app asks you to sign in again. Another Google ID works only after it is added in the sheet under **Rubber Ledger → Allowed Google accounts**.
+3. In the app, open **Settings**, type your **Google ID** (the Gmail address that owns the sheet, e.g. prakashrtvm@gmail.com), tap **Save settings**, then tap **Sign in with Google**. Google pre-selects that account; if a different one is picked, the app asks you to sign in again. Another Google ID works only after it is added in the sheet under **Rubber Ledger → Allowed Google accounts**.
 4. Add your workers (tappers, labourers) with their daily rate.
 5. Tap **Share → Add to Home Screen**. If iOS shows **Open as Web App**, switch it **off** — the microphone only works when the app opens in Safari.
 6. Five-minute voice test: tap the mic and say "Collected 38 kg latex DRC 34". Allow the microphone when asked.
@@ -101,4 +101,4 @@ After changing `Code.gs`, use **Deploy → Manage deployments → Edit (pencil) 
 
 ## Updating the app later
 
-Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v5'` in `sw.js` to `v6`, `v7`… so phones pick up the new version.
+Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v6'` in `sw.js` to `v7`, `v8`… so phones pick up the new version.

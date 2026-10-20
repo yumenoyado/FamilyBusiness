@@ -100,8 +100,7 @@
     <!-- SETTINGS -->
     <section id="view-settings" class="view" aria-label="Settings">
       <form class="card form" id="settingsForm">
-        <h2>Google Sheet connection</h2>
-        <label>Apps Script Web App URL<input id="sUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec" required></label>
+        <h2>Google sign-in</h2>
         <label>Google ID used to sign in<input id="sGoogle" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com"></label>
         <div class="signin">
           <p class="hint" id="authStatus">Save the Web App URL, then sign in with Google.</p>
@@ -109,7 +108,9 @@
           <button type="button" class="btn" id="signOutBtn" hidden>Sign out</button>
         </div>
         <details class="help" id="keyBox">
-          <summary>Use an access key instead</summary>
+          <summary>Advanced (other sheet or access key)</summary>
+          <p class="hint">Not needed: the app already connects to your "Rubber Business Ledger" sheet. Change these only to use a different sheet or sign in without Google.</p>
+          <label>Apps Script Web App URL<input id="sUrl" type="url" placeholder="Leave empty to use your sheet"></label>
           <label>Access key<input id="sKey" type="password" autocomplete="off" placeholder="From the sheet: Rubber Ledger → Show access key"></label>
         </details>
         <h2>Entry</h2>
