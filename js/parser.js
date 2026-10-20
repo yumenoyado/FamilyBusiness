@@ -175,19 +175,39 @@
   const PROD_W = /\b(collected|collect|collection|tapped|produced|production|made|got|harvest(?:ed)?|yield)\b/;
   const EXPENSE_RULES = [
     ['Tapping wages', /\btapp(?:er|ers|ing)\b/],
-    ['Rain guarding', /\brain ?guard(?:ing)?\b|\bguarding\b/],
+    ['Rain guarding', /\brain ?guard(?:ing)?\b|\bguarding\b|\bpolythene\b|\bskirt(?:ing)?\b|\bshade\b|\bglue\b|\badhesive\b/],
     ['Weeding/labour', /\bweed(?:ing)?\b|\blabou?r(?:er|ers)?\b|\bworkers?\b|\bcoolie\b|\bslashing\b|\bclearing\b/],
-    ['Fertilizer', /\bfertili[sz]ers?\b|\bmanure\b|\burea\b|\bpotash\b|\bfactamfos\b|\bdolomite\b|\blime\b|\bcompost\b/],
-    ['Acid & chemicals', /\bacid\b|\bformic\b|\bchemicals?\b|\bammonia\b|\bfungicide\b|\bcopper\b|\bbordeaux\b|\bsulph?ur\b|\bspray(?:ing)?\b/],
-    ['Plastic/cups', /\bcups?\b|\bplastic\b|\bspouts?\b/],
-    ['Smoke house fuel', /\bfire ?wood\b|\bsmoke ?house\b|\bfuel\b|\bwood\b/],
-    ['Transport', /\btransport\b|\bauto\b|\blorry\b|\bvehicle\b|\bdiesel\b|\bpetrol\b|\bfreight\b|\bjeep\b|\btaxi\b/],
-    ['Equipment & repairs', /\bknife\b|\bknives\b|\broller\b|\bmachine\b|\brepairs?\b|\bequipment\b|\btools?\b|\bsharpen(?:ing)?\b/],
+    ['Fertilizer', /\bfertili[sz]ers?\b|\bmanure\b|\burea\b|\bpotash\b|\bfactamfos\b|\bfactomfos\b|\bdolomite\b|\blime\b|\bcompost\b|\bnpk\b|\bphosphate\b|\brajphos\b|\bmussoriephos\b|\bammonium\b|\bcow ?dung\b|\bneem cake\b|\bbone ?meal\b|\bmagnesium\b/],
+    ['Acid & chemicals', /\bacid\b|\bformic\b|\bchemicals?\b|\bammonia\b|\bfungicide\b|\bpesticide\b|\bweedicide\b|\bherbicide\b|\bglyphosate\b|\bcopper\b|\bbordeaux\b|\bsulph?ur\b|\bspray(?:ing)?\b|\bstimulant\b|\bethephon\b|\bsodium\b|\bmetabisulphite\b/],
+    ['Plastic/cups', /\bcups?\b|\bplastic\b|\bspouts?\b|\bcup hangers?\b|\bhangers?\b|\bwires?\b|\bcoconut shells?\b/],
+    ['Smoke house fuel', /\bfire ?wood\b|\bsmoke ?house\b|\bfuel\b|\bwood\b|\bkerosene\b|\bcoconut husks?\b/],
+    ['Transport', /\btransport\b|\bauto\b|\blorry\b|\bvehicle\b|\bdiesel\b|\bpetrol\b|\bfreight\b|\bjeep\b|\btaxi\b|\bbus\b|\bfare\b|\bloading\b|\bunloading\b|\bpick ?up\b|\bdelivery\b/],
+    ['Equipment & repairs', /\bknife\b|\bknives\b|\broller\b|\bmachine\b|\brepairs?\b|\bequipment\b|\btools?\b|\bsharpen(?:ing)?\b|\bbuckets?\b|\btanks?\b|\bpans?\b|\btrays?\b|\bdrums?\b|\bvessels?\b|\bsprayer\b|\btorch\b|\bhead ?lamp\b|\bbattery\b|\bboots?\b|\bgloves?\b|\bladder\b|\bmotor\b|\bpump\b|\bwelding\b/],
     ['Land tax', /\btax\b/],
     ['Loan interest', /\binterest\b|\bloan\b|\bemi\b/]
   ];
 
   const isLatexCat = c => c === 'Latex' || c === 'Latex sale';
+  // Expense item description: what was bought or paid for, in the speaker's words
+  // ("Fertilizer 2 bags 1450 each" → "Fertilizer", "diesel 300 for the tractor" → "Diesel for the tractor").
+  const ITEM_DROP = /\b(paid|pay|paying|bought|buy|buying|purchased?|spent|spend|expenses?|cost|bill|rs|rupees?|each|per|total|amount|only|for each)\b/g;
+  const EDGE_WORDS = /^(?:for|to|of|and|on|the|a|an|at|with|by|from|in|towards)\b\s*|\s*\b(?:for|to|of|and|on|the|a|an|at|with|by|from|in)$/;
+  function itemFrom(text) {
+    let s = String(text || '').replace(/\d+(?:\.\d+)?/g, ' ').replace(ITEM_DROP, ' ').replace(/[^a-z' ]/g, ' ').replace(/\s+/g, ' ').trim();
+    for (let i = 0; i < 6; i++) { const n = s.replace(EDGE_WORDS, '').trim(); if (n === s) break; s = n; }
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+  }
+  // Expense category for an item description, or null when nothing matches.
+  function categoryForItem(item) {
+    const v = normalize(item);
+    if (!v) return null;
+    // things bought win over people words: "tapping knife" is equipment, not tapping wages
+    const order = EXPENSE_RULES.filter(([c]) => !WAGE_CATEGORIES.includes(c)).concat(EXPENSE_RULES.filter(([c]) => WAGE_CATEGORIES.includes(c)));
+    const rule = order.find(([, re]) => re.test(v));
+    return rule ? rule[0] : null;
+  }
+
+  const P_WAGE = e => WAGE_CATEGORIES.includes(e.category) && !!e.party;   // a worker's wage stays a wage
   const isKgCat = c => ['Sheet rubber', 'Scrap / ottupal', 'Cup lump', 'Sheet sale', 'Scrap sale'].includes(c);
 
   // Recalculate derived fields. `changed` = the field the user just changed (optional).
@@ -234,7 +254,7 @@
     ctx = Object.assign({ density: 1, workers: [], today: new Date() }, ctx || {});
     const today = ctx.today instanceof Date ? ctx.today : new Date(ctx.today);
     const e = { type: null, category: null, quantity: null, unit: null, drc: null, dryKg: null, rate: null, amount: null,
-      party: '', paymentMode: '', date: null, notes: '', voiceText: String(raw || '').trim() };
+      party: '', paymentMode: '', date: null, notes: '', item: '', voiceText: String(raw || '').trim() };
     const t0 = normalize(raw);
     let t = t0;
 
@@ -322,22 +342,29 @@
         if (name && name.length > 1 && !/^(day|the|a|an)$/.test(name)) e.party = titleCase(name);
       }
     }
+    if (e.type === 'Expense') {
+      let rest = t;
+      if (e.party) rest = rest.replace(new RegExp('\\b(?:to|from|paid to)?\\s*' + e.party.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b'), ' ');
+      e.item = itemFrom(rest);
+      const fromItem = categoryForItem(e.item);
+      if (fromItem && !(worker && WAGE_CATEGORIES.includes(e.category))) { e.category = fromItem; delete e._guessedCategory; }
+    }
     return recompute(e, ctx);
   }
 
   // ---------- commands ----------
   const FIELD_ALIASES = { amount: 'amount', total: 'amount', rate: 'rate', price: 'rate', quantity: 'quantity', qty: 'quantity',
     party: 'party', name: 'party', worker: 'party', buyer: 'party', date: 'date', drc: 'drc', category: 'category',
-    unit: 'unit', payment: 'paymentMode', mode: 'paymentMode', notes: 'notes', note: 'notes' };
+    unit: 'unit', payment: 'paymentMode', mode: 'paymentMode', notes: 'notes', note: 'notes', item: 'item', description: 'item', items: 'item' };
 
   function parseCommand(raw) {
     const t = normalize(raw).replace(/^(please|okay so|ok so|hey)\s+/, '').trim();
     let m;
     if (/^(delete|cancel|remove|discard|scratch that|wrong|no)(\s+(it|this|that|entry|this entry|that entry))?$/.test(t)) return { cmd: 'delete' };
     if ((m = t.match(/^(?:delete|remove)\s+(?:the\s+)?last(?:\s+(\d+))?(?:\s+(?:entry|entries|one|ones))?$/))) return { cmd: 'deleteLast', n: m[1] ? Math.min(+m[1], 20) : 1 };
-    if ((m = t.match(/^(?:delete|clear|remove)\s+(?:the\s+)?(amount|total|rate|price|quantity|qty|party|name|worker|buyer|date|drc|category|unit|payment|mode|notes?)$/))) return { cmd: 'deleteField', field: FIELD_ALIASES[m[1]] };
+    if ((m = t.match(/^(?:delete|clear|remove)\s+(?:the\s+)?(amount|total|rate|price|quantity|qty|party|name|worker|buyer|date|drc|category|unit|payment|mode|notes?|items?|description)$/))) return { cmd: 'deleteField', field: FIELD_ALIASES[m[1]] };
     if (/^(save|save it|ok|okay|yes|confirm|done|correct|right)$/.test(t)) return { cmd: 'save' };
-    if ((m = t.match(/^(?:change|set|make|correct)\s+(?:the\s+)?(amount|total|rate|price|quantity|qty|party|name|worker|buyer|date|drc|category|unit|payment|mode|notes?)\s+(?:to|as|is|=)?\s*(.+)$/))) return { cmd: 'set', field: FIELD_ALIASES[m[1]], value: m[2].trim() };
+    if ((m = t.match(/^(?:change|set|make|correct)\s+(?:the\s+)?(amount|total|rate|price|quantity|qty|party|name|worker|buyer|date|drc|category|unit|payment|mode|notes?|items?|description)\s+(?:to|as|is|=)?\s*(.+)$/))) return { cmd: 'set', field: FIELD_ALIASES[m[1]], value: m[2].trim() };
     if (/^undo$/.test(t)) return { cmd: 'undo' };
     if (/^(stop|close|exit|stop listening)$/.test(t)) return { cmd: 'stop' };
     return null;
@@ -361,7 +388,7 @@
     ctx = Object.assign({ density: 1, today: new Date() }, ctx || {});
     const today = ctx.today instanceof Date ? ctx.today : new Date(ctx.today);
     if (value == null || value === '') {
-      e[field] = ['party', 'notes', 'paymentMode'].includes(field) ? '' : null;
+      e[field] = ['party', 'notes', 'paymentMode', 'item'].includes(field) ? '' : null;
       if (field === 'category') e.category = null;
     } else if (['amount', 'rate', 'quantity', 'drc'].includes(field)) {
       const n = (normalize(value).match(/\d+(?:\.\d+)?/) || [])[0];
@@ -371,6 +398,10 @@
     } else if (field === 'category') {
       const c = matchCategory(value, null);
       if (c) { e.category = c; e.type = typeOfCategory(c); delete e._guessedCategory; }
+    } else if (field === 'item') {   // a new description re-decides the expense category
+      e.item = String(value).trim().replace(/^./, ch => ch.toUpperCase());
+      const c = categoryForItem(e.item);
+      if (c && e.type === 'Expense' && !P_WAGE(e)) { e.category = c; delete e._guessedCategory; }
     } else if (field === 'unit') {
       const m = ('1 ' + normalize(value)).match(UNIT_RE); if (m) e.unit = unitOf(m[2]);
     } else if (field === 'paymentMode') {
@@ -394,7 +425,7 @@
   }
 
   const api = { parse, parseCommand, applySpokenDeletes, applyField, recompute, validate, normalize, wordsToNumbers, financialYear,
-    isoDate, CATEGORIES, WAGE_CATEGORIES, UNITS, PAYMENT_MODES, typeOfCategory };
+    isoDate, CATEGORIES, WAGE_CATEGORIES, UNITS, PAYMENT_MODES, typeOfCategory, categoryForItem, itemFrom };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.RubberParser = api;
 })(typeof self !== 'undefined' ? self : this);

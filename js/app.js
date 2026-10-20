@@ -114,7 +114,7 @@
       id: String(e.id), date: String(e.date || ''), month: e.month || String(e.date || '').slice(0, 7), fy: e.fy || P.financialYear(e.date),
       type: e.type || '', category: e.category || '', quantity: n(e.quantity), unit: e.unit || '', drc: n(e.drc), dryKg: n(e.dryKg),
       rate: n(e.rate), amount: n(e.amount), party: e.party || '', paymentMode: e.paymentMode || '', notes: e.notes || '',
-      voiceText: e.voiceText || '', createdAt: e.createdAt || '', status: e.status || 'Active', archived: e.archived || ''
+      item: e.item || '', voiceText: e.voiceText || '', createdAt: e.createdAt || '', status: e.status || 'Active', archived: e.archived || ''
     };
   }
 
@@ -374,7 +374,7 @@
     const fl = new Set(e.flags || []);
     const row = (label, val, key) => `<dt>${label}</dt><dd>${fl.has(key) ? `<span class="flag">${esc(val || 'missing')}</span>` : esc(val)}</dd>`;
     const isLatex = e.category === 'Latex' || e.category === 'Latex sale';
-    let rows = row('Date', fmtDate(e.date), 'date') + row('Category', e.category || '?', 'category');
+    let rows = row('Date', fmtDate(e.date), 'date') + (e.type === 'Expense' ? row('Item', e.item || '—', 'item') : '') + row('Category', e.category || '?', 'category');
     if (e.quantity != null || fl.has('quantity')) rows += row('Quantity', e.quantity != null ? `${num(e.quantity, 2)} ${e.unit || ''}` : '', 'quantity');
     if (isLatex || e.drc != null) rows += row('DRC', e.drc != null ? `${num(e.drc)}%` : '', 'drc');
     if (e.dryKg != null && (isLatex || e.type === 'Production')) rows += row('Dry rubber', `${num(e.dryKg)} kg`, 'dryKg');
@@ -413,7 +413,7 @@
   function entryLi(e) {
     const unsynced = isArchived(e) ? '<span class="archived" title="Archived in the FamilyBusiness sheet">✓ archived</span>' : '<span class="unsynced">on phone</span>';
     const amt = e.type === 'Production' ? `${num(e.dryKg != null ? e.dryKg : e.quantity)} kg` : inr(e.amount);
-    const detail = [describeQty(e), e.party, e.paymentMode].filter(Boolean).join(' · ');
+    const detail = [e.type === 'Expense' ? e.item : '', describeQty(e), e.party, e.paymentMode].filter(Boolean).join(' · ');
     return `<li data-id="${esc(e.id)}" class="${e.status === 'Deleted' ? 'deleted' : ''}">
       <span class="dot ${esc(e.type)}"></span>
       <div class="main"><div class="t1">${esc(e.category)} ${unsynced}</div><div class="t2">${esc(detail || fmtDate(e.date))}</div></div>
@@ -465,7 +465,18 @@
   }
 
   // ---------------- editor ----------------
-  let edEntry = null, edIsPending = false, edAmountAuto = true;
+  let edEntry = null, edIsPending = false, edAmountAuto = true, edCatAuto = true;
+  // Pick the expense category from the item description (unless you chose one yourself, or it is a worker's wage).
+  function categoryFromItem() {
+    if (!edCatAuto || $('#eType').value !== 'Expense') return;
+    const party = $('#eParty').value.trim();
+    if (party && P.WAGE_CATEGORIES.includes($('#eCat').value) && !P.categoryForItem($('#eItem').value)) return;
+    const c = P.categoryForItem($('#eItem').value);
+    const want = c || ($('#eItem').value.trim() ? 'Miscellaneous' : $('#eCat').value);
+    if (want && want !== $('#eCat').value) { fillCategoryOptions($('#eCat'), 'Expense', want); }
+    delete edEntry._guessedCategory;
+    $('#eCatHint').hidden = !c; $('#eCatHint').textContent = c ? `Category set from the item: ${c}. Pick another to override.` : '';
+  }
   function openEditor(entry, isPending) {
     edIsPending = !!isPending;
     edEntry = entry ? Object.assign({}, entry) : { id: null, date: today(), type: 'Expense', category: 'Miscellaneous', quantity: null, unit: '', drc: null, dryKg: null, rate: null, amount: null, party: '', paymentMode: '', notes: '', voiceText: '' };
@@ -486,6 +497,11 @@
     $('#eParty').value = edEntry.party || '';
     $('#ePay').value = edEntry.paymentMode || '';
     $('#eNotes').value = edEntry.notes || '';
+    $('#eItem').value = edEntry.item || '';
+    $('#eItemRow').hidden = $('#eType').value !== 'Expense';
+    // the category follows the item description until you pick a category yourself
+    edCatAuto = !edEntry.category || edEntry.category === 'Miscellaneous' || !!edEntry._guessedCategory || P.categoryForItem(edEntry.item) === edEntry.category;
+    $('#eCatHint').hidden = true;
     $('#eVoice').textContent = edEntry.voiceText ? `Voice: "${edEntry.voiceText}"` : '';
     $('#eDelete').hidden = !entry || isPending;
     $('#eDelete').textContent = locked ? 'Remove from phone' : 'Delete';
@@ -501,7 +517,8 @@
     const n = id => { const v = $(id).value; return v === '' ? null : +v; };
     return Object.assign({}, edEntry, {
       date: $('#eDate').value, type: $('#eType').value, category: $('#eCat').value, quantity: n('#eQty'), unit: $('#eUnit').value,
-      drc: n('#eDrc'), rate: n('#eRate'), amount: n('#eAmount'), party: $('#eParty').value.trim(), paymentMode: $('#ePay').value, notes: $('#eNotes').value.trim()
+      drc: n('#eDrc'), rate: n('#eRate'), amount: n('#eAmount'), party: $('#eParty').value.trim(), paymentMode: $('#ePay').value, notes: $('#eNotes').value.trim(),
+      item: $('#eType').value === 'Expense' ? $('#eItem').value.trim() : ''
     });
   }
   function editorRecalc(changed) {
@@ -517,8 +534,14 @@
     return e;
   }
   function wireEditor() {
-    $('#eType').addEventListener('change', () => { fillCategoryOptions($('#eCat'), $('#eType').value, null); editorRecalc('category'); });
-    $('#eCat').addEventListener('change', () => { delete edEntry._guessedCategory; editorRecalc('category'); });
+    $('#eType').addEventListener('change', () => {
+      fillCategoryOptions($('#eCat'), $('#eType').value, null);
+      $('#eItemRow').hidden = $('#eType').value !== 'Expense';
+      if ($('#eType').value === 'Expense') categoryFromItem();
+      editorRecalc('category');
+    });
+    $('#eCat').addEventListener('change', () => { delete edEntry._guessedCategory; edCatAuto = false; $('#eCatHint').hidden = true; editorRecalc('category'); });
+    $('#eItem').addEventListener('input', () => { categoryFromItem(); editorRecalc('category'); });
     [['#eQty', 'quantity'], ['#eUnit', 'unit'], ['#eDrc', 'drc'], ['#eRate', 'rate']].forEach(([s, f]) => $(s).addEventListener('input', () => editorRecalc(f)));
     $('#eAmount').addEventListener('input', () => { edAmountAuto = $('#eAmount').value === ''; editorRecalc('amount'); });
     $('#eParty').addEventListener('change', () => {
