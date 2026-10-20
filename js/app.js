@@ -236,7 +236,7 @@
         for (let i = 0; i < ev.results.length; i++) { parts.push(ev.results[i][0].transcript.trim()); lastFinal = ev.results[i].isFinal; }
         sessionText = parts.filter(Boolean).join(' ');
         const shown = P.applySpokenDeletes(joinText(baseText, sessionText));   // "delete" removes the previous word at once
-        $('#dictInput').value = shown + (lastFinal && shown ? ' ' : '');
+        $('#dictInput').value = shown + (lastFinal && shown ? ' ' : ''); $('#dictInput').scrollTop = 1e6;   // keep the newest words in view
         if (S.pending) pauseCountdown();
       };
       rec.onerror = ev => {
@@ -842,6 +842,7 @@
       handleUtterance(v);
     });
     $('#dictInput').addEventListener('input', () => { if (S.pending) pauseCountdown(); });
+    $('#dictInput').addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('#dictForm').requestSubmit(); } });   // Enter = Go
     $('#syncBadge').addEventListener('click', syncNow);
     $('#syncBtn').addEventListener('click', syncNow);
     $('#homeSync').addEventListener('click', syncNow);
