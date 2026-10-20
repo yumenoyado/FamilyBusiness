@@ -15,7 +15,7 @@
 
   // ---------------- state ----------------
   const S = {
-    settings: { url: '', key: '', session: '', email: '', googleId: '', density: 1, autosave: 3, readback: false },
+    settings: { url: '', key: '', session: '', email: '', googleId: 'prakashrtvm@gmail.com', density: 1, autosave: 3, readback: false },
     entries: [],     // all entries (incl. Deleted status)
     workers: [],
     queue: [],       // pending ops for the sheet
@@ -34,6 +34,10 @@
   const pendingIds = () => new Set(S.queue.map(o => (o.entry && o.entry.id) || o.id).filter(Boolean));
   // Your sheet's backend (Rubber Business Ledger, prakashrtvm@gmail.com). It only answers allowed, signed-in Google accounts.
   const BUILT_IN_URL = 'https://script.google.com/macros/s/AKfycby6ynQDPXsDvKnNFn-sJv5UfY7M6-H3L-zM03cP-LWtT9ColLfDa9bgwLFKnbs71yN_/exec';
+  // Saved to the sheet (nothing left to send) = archived: kept on the phone for reports, but read-only.
+  // Entries saved in this voice session stay correctable (Undo / "delete last") until the app is closed.
+  const isArchived = e => !!(e && e.id && S.settings.url && !pendingIds().has(e.id));
+  const isLocked = e => isArchived(e) && !S.session.includes(e.id);
   const configured = () => !!(S.settings.url && (S.settings.session || S.settings.key));
 
   // ---------------- backend ----------------
@@ -397,7 +401,7 @@
 
   // ---------------- lists ----------------
   function entryLi(e) {
-    const unsynced = pendingIds().has(e.id) ? '<span class="unsynced">not synced</span>' : '';
+    const unsynced = pendingIds().has(e.id) ? '<span class="unsynced">not synced</span>' : isArchived(e) && e.status !== 'Deleted' ? '<span class="archived" title="Archived in the FamilyBusiness sheet">✓ archived</span>' : '';
     const amt = e.type === 'Production' ? `${num(e.dryKg != null ? e.dryKg : e.quantity)} kg` : inr(e.amount);
     const detail = [describeQty(e), e.party, e.paymentMode].filter(Boolean).join(' · ');
     return `<li data-id="${esc(e.id)}" class="${e.status === 'Deleted' ? 'deleted' : ''}">
@@ -455,7 +459,12 @@
   function openEditor(entry, isPending) {
     edIsPending = !!isPending;
     edEntry = entry ? Object.assign({}, entry) : { id: null, date: today(), type: 'Expense', category: 'Miscellaneous', quantity: null, unit: '', drc: null, dryKg: null, rate: null, amount: null, party: '', paymentMode: '', notes: '', voiceText: '' };
-    $('#edTitle').textContent = isPending ? 'Check entry' : entry ? 'Edit entry' : 'New entry';
+    const locked = !isPending && isLocked(entry);
+    $('#edTitle').textContent = isPending ? 'Check entry' : locked ? 'Archived entry' : entry ? 'Edit entry' : 'New entry';
+    $$('#editorForm input, #editorForm select').forEach(el => { el.disabled = locked; });
+    $('#eSave').hidden = locked;
+    $('#eCancel').textContent = locked ? 'Close' : 'Cancel';
+    $('#eLocked').hidden = !locked;
     $('#eDate').value = edEntry.date || today();
     $('#eType').value = edEntry.type || 'Expense';
     fillCategoryOptions($('#eCat'), $('#eType').value, edEntry.category);
@@ -468,7 +477,7 @@
     $('#ePay').value = edEntry.paymentMode || '';
     $('#eNotes').value = edEntry.notes || '';
     $('#eVoice').textContent = edEntry.voiceText ? `Voice: "${edEntry.voiceText}"` : '';
-    $('#eDelete').hidden = !entry || isPending;
+    $('#eDelete').hidden = !entry || isPending || locked;
     const isLatex = edEntry.category === 'Latex' || edEntry.category === 'Latex sale';
     const base = isLatex ? edEntry.dryKg : edEntry.quantity;
     // amount is "automatic" if it is empty or was calculated from rate × quantity
