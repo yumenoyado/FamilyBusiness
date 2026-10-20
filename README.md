@@ -55,7 +55,9 @@ No keys or sheet links are stored in GitHub; they are typed into the app on the 
 
 ## Using it
 
-Tap the mic and speak. A card shows what was understood and saves itself after **3 seconds** (change this in Settings). Before it saves:
+Tap the mic and speak; the words appear in the box until you tap **Go**. While speaking, saying **"delete"** removes the word before it straight away (say it twice to remove two words).
+
+A card shows what was understood and saves itself after **3 seconds** (change this in Settings). Before it saves:
 
 - say **"delete"** (or tap Delete) to throw it away
 - say **"change amount to 7800"** or **"delete amount"** to fix one field, or tap **Edit**
@@ -99,4 +101,4 @@ After changing `Code.gs`, use **Deploy → Manage deployments → Edit (pencil) 
 
 ## Updating the app later
 
-Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v3'` in `sw.js` to `v4`, `v5`… so phones pick up the new version.
+Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v4'` in `sw.js` to `v5`, `v6`… so phones pick up the new version.
