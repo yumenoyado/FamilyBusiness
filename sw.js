@@ -1,12 +1,12 @@
 /* Rubber Ledger service worker: caches the app so it opens without signal. */
-const CACHE = 'rubber-ledger-v6';
+const CACHE = 'rubber-ledger-v7';
 const CHART = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
 const ASSETS = ['./', 'index.html', 'styles.css', 'js/db.js', 'js/parser.js', 'js/app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', ev => {
   ev.waitUntil(caches.open(CACHE).then(async c => {
-    await c.addAll(ASSETS);
+    await c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })));
     try { await c.add(CHART); } catch (e) { /* charts load later */ }
   }).then(() => self.skipWaiting()));
 });
@@ -31,7 +31,8 @@ self.addEventListener('fetch', ev => {
     let done = false;
     const fallback = () => caches.match(req, { ignoreSearch: true }).then(hit => { if (!done && hit) { done = true; resolve(hit); } });
     const timer = setTimeout(fallback, 3000);
-    fetch(req).then(res => {
+    // 'no-cache' asks GitHub every time (cheap: unchanged files come back as 304), so a new version shows on the next open
+    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).then(res => {
       clearTimeout(timer);
       if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       if (!done) { done = true; resolve(res); }
