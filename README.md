@@ -81,11 +81,11 @@ Latex is weighed in kg (wet weight). Dry rubber kg = wet kg × DRC %, and the la
 
 If the in-app mic doesn't work, tap the entry box and use the **mic key on the iPhone keyboard**, then tap **Go** — the same words and commands work.
 
-Entries are stored on the phone first and sent to the sheet as soon as there is signal; the top-right badge shows anything not yet synced. Open the app at least once a week with signal so nothing is left unsynced (Safari can clear data for sites unused for 7 days).
+Entries are kept **on the phone** (marked *on phone*) until you send them. Sync only happens when you ask: tap **Sync N** at the top right, the **Sync to Google Sheet** button on Home, or the one in Settings. Until then you can still edit or delete them, and deleted ones never reach the sheet. Sync regularly (at least weekly): Safari can clear data for sites unused for 7 days.
 
 ## Your Google Sheet
 
-The app saves to a Google Sheet called **FamilyBusiness** in your Drive. If a sheet with that name exists, new entries are added to it; if not, it is created with all tabs. Once an entry is in the sheet it shows **✓ archived** in the app and becomes read-only there (entries from the current voice session can still be undone); change archived entries in the sheet.
+The app saves to a Google Sheet called **FamilyBusiness** in your Drive. If a sheet with that name exists, new entries are added to it; if not, it is created with all tabs. After a sync, each sent entry is marked **✓ archived** in the app. Archived entries stay on the phone (and in your reports) until you remove them yourself: open one and tap **Remove from phone**. Removing it from the phone leaves it in the sheet. Archived entries are read-only in the app; change them in the sheet.
 
 | Tab | Contents |
 | --- | --- |
@@ -95,7 +95,7 @@ The app saves to a Google Sheet called **FamilyBusiness** in your Drive. If a sh
 | Summary | Monthly and financial-year totals, dry kg produced, wages per worker — formulas, update automatically |
 | Settings | Reference values |
 
-You can edit rows directly in the sheet; the app picks up changes on the next sync. Keep the ID column unchanged.
+You can edit rows directly in the sheet (the app does not copy them back to the phone). Keep the ID column unchanged.
 
 ## Updating the backend later
 
@@ -103,4 +103,4 @@ After changing `Code.gs`, use **Deploy → Manage deployments → Edit (pencil) 
 
 ## Updating the app later
 
-Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v8'` in `sw.js` to `v9`, `v10`… so phones pick up the new version.
+Upload the changed files to the GitHub repository. Also change `CACHE = 'rubber-ledger-v9'` in `sw.js` to `v10`, `v11`… so phones pick up the new version.

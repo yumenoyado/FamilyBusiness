@@ -14,7 +14,7 @@
 <body>
   <header class="topbar">
     <h1>Rubber Ledger</h1>
-    <button id="syncBadge" class="sync-badge" type="button" title="Sync now">Synced</button>
+    <button id="syncBadge" class="sync-badge" type="button" title="Sync now">Sync</button>
   </header>
 
   <div id="banner" class="banner" hidden></div>
@@ -26,6 +26,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
         <span>Speak an entry</span>
       </button>
+      <button type="button" class="btn primary sync-cta" id="homeSync" hidden>Sync to Google Sheet</button>
       <div class="card">
         <h2 id="monthTitle">This month</h2>
         <div class="kpis" id="monthKpis"></div>
@@ -148,7 +149,7 @@
       <div class="card">
         <h2>Data</h2>
         <div class="row wrap">
-          <button type="button" class="btn" id="syncBtn">Sync now</button>
+          <button type="button" class="btn primary" id="syncBtn">Sync to Google Sheet</button>
           <button type="button" class="btn" id="csvBtn">Export CSV</button>
           <a class="btn" id="sheetLink" target="_blank" rel="noopener" hidden>Open Google Sheet</a>
         </div>
@@ -192,7 +193,7 @@
       </div>
       <label>Notes<input id="eNotes"></label>
       <p class="hint" id="eVoice"></p>
-      <p class="hint archived-note" id="eLocked" hidden>✓ Archived in your FamilyBusiness Google Sheet. To change or delete it, edit the sheet; the app picks up the change on the next sync.</p>
+      <p class="hint archived-note" id="eLocked" hidden>✓ Archived in your FamilyBusiness Google Sheet. It stays on this phone until you remove it. To change it, edit the sheet.</p>
       <div class="row">
         <button type="button" class="btn primary" id="eSave">Save</button>
         <button type="button" class="btn danger" id="eDelete">Delete</button>
