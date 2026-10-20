@@ -154,6 +154,8 @@ h3.sub { font-size: 14px; color: var(--muted); margin: 20px 0 8px; text-transfor
 .dot.Expense { background: var(--expense); }
 .dot.Production { background: var(--prod); }
 .unsynced { font-size: 11px; color: var(--warn); font-weight: 700; }
+.archived { font-size: 11px; color: var(--income); font-weight: 600; }
+.archived-note { color: var(--ink); }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .filters > * { flex: 1 1 140px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); padding: 0 10px; min-width: 0; }

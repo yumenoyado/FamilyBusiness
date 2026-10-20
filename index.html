@@ -101,7 +101,7 @@
     <section id="view-settings" class="view" aria-label="Settings">
       <form class="card form" id="settingsForm">
         <h2>Google sign-in</h2>
-        <label>Google ID used to sign in<input id="sGoogle" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com"></label>
+        <label>Google ID used to sign in<input id="sGoogle" type="email" value="prakashrtvm@gmail.com" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com"></label>
         <div class="signin">
           <p class="hint" id="authStatus">Save the Web App URL, then sign in with Google.</p>
           <div id="gBtn" class="g-btn"></div>
@@ -109,7 +109,7 @@
         </div>
         <details class="help" id="keyBox">
           <summary>Advanced (other sheet or access key)</summary>
-          <p class="hint">Not needed: the app already connects to your "Rubber Business Ledger" sheet. Change these only to use a different sheet or sign in without Google.</p>
+          <p class="hint">Not needed: the app already saves to the "FamilyBusiness" sheet in your Google Drive (created automatically if it is missing). Change these only to use a different sheet or sign in without Google.</p>
           <label>Apps Script Web App URL<input id="sUrl" type="url" placeholder="Leave empty to use your sheet"></label>
           <label>Access key<input id="sKey" type="password" autocomplete="off" placeholder="From the sheet: Rubber Ledger → Show access key"></label>
         </details>
@@ -192,6 +192,7 @@
       </div>
       <label>Notes<input id="eNotes"></label>
       <p class="hint" id="eVoice"></p>
+      <p class="hint archived-note" id="eLocked" hidden>✓ Archived in your FamilyBusiness Google Sheet. To change or delete it, edit the sheet; the app picks up the change on the next sync.</p>
       <div class="row">
         <button type="button" class="btn primary" id="eSave">Save</button>
         <button type="button" class="btn danger" id="eDelete">Delete</button>
