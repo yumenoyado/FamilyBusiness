@@ -46,7 +46,8 @@ function onOpen() {
 
 function setup() {
   const props = PropertiesService.getScriptProperties();
-  const ss = ss_();   // finds or creates the FamilyBusiness sheet and prepares its tabs
+  const ss = ss_();   // finds or creates the FamilyBusiness sheet
+  prepareBook_(ss);   // adds any missing tabs or columns (safe to repeat)
 
   if (!props.getProperty('ALLOWED_EMAILS')) props.setProperty('ALLOWED_EMAILS', ownerEmail_());
   const key = getKey_();
