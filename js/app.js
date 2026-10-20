@@ -32,6 +32,8 @@
   const active = () => S.entries.filter(e => e.status !== 'Deleted');
   const ctx = () => ({ density: +S.settings.density || 1, workers: S.workers, today: new Date() });
   const pendingIds = () => new Set(S.queue.map(o => (o.entry && o.entry.id) || o.id).filter(Boolean));
+  // Your sheet's backend (Rubber Business Ledger, prakashrtvm@gmail.com). It only answers allowed, signed-in Google accounts.
+  const BUILT_IN_URL = 'https://script.google.com/macros/s/AKfycby6ynQDPXsDvKnNFn-sJv5UfY7M6-H3L-zM03cP-LWtT9ColLfDa9bgwLFKnbs71yN_/exec';
   const configured = () => !!(S.settings.url && (S.settings.session || S.settings.key));
 
   // ---------------- backend ----------------
@@ -639,7 +641,7 @@
 
   // ---------------- settings & workers ----------------
   function renderSettings() {
-    $('#sUrl').value = S.settings.url; $('#sKey').value = S.settings.key; $('#sGoogle').value = S.settings.googleId || '';
+    $('#sUrl').value = S.settings.url === BUILT_IN_URL ? '' : S.settings.url; $('#sKey').value = S.settings.key; $('#sGoogle').value = S.settings.googleId || '';
     renderAuth();
     $('#sDensity').value = S.settings.density; $('#sAuto').value = S.settings.autosave; $('#sReadback').checked = !!S.settings.readback;
     const link = $('#sheetLink'); link.hidden = !S.sheetUrl; if (S.sheetUrl) link.href = S.sheetUrl;
@@ -669,13 +671,13 @@
     setupGoogle();
   }
   async function setupGoogle() {
-    const url = ($('#sUrl').value || S.settings.url || '').trim();
+    const url = ($('#sUrl').value || S.settings.url || BUILT_IN_URL).trim();
     if (!url) { authStatus('Enter the Web App URL above, tap <b>Save settings</b>, then sign in with Google.'); return; }
     if (!navigator.onLine) { authStatus('Google sign-in needs an internet connection.'); return; }
     try {
       if (!(url in cfgCache)) {
         const r = await post(url, { action: 'config' });
-        if (!r.ok || r.app !== 'rubber-ledger') { authStatus('That URL is not the Rubber Ledger web app. Check the Web App URL.'); return; }
+        if (!r.ok || r.app !== 'rubber-ledger') { authStatus('That URL is not the Rubber Ledger web app. Check the Web App URL under Advanced, or clear it to use your sheet.'); return; }
         cfgCache[url] = r.clientId || '';
       }
       const cfg = { clientId: cfgCache[url] };
@@ -696,7 +698,7 @@
     }
   }
   async function onGoogleCredential(resp) {
-    const url = ($('#sUrl').value || S.settings.url || '').trim();
+    const url = ($('#sUrl').value || S.settings.url || BUILT_IN_URL).trim();
     authStatus('Signing in…');
     const wanted = wantedGoogleId();
     if (isEmail(wanted)) {   // stop early if a different account was picked in Google's chooser
@@ -835,7 +837,7 @@
 
     $('#settingsForm').addEventListener('submit', async ev => {
       ev.preventDefault();
-      const newUrl = $('#sUrl').value.trim();
+      const newUrl = $('#sUrl').value.trim() || BUILT_IN_URL;
       if (newUrl !== S.settings.url) { S.settings.session = ''; S.settings.email = ''; }   // a different sheet needs a new sign-in
       const gid = $('#sGoogle').value.trim().toLowerCase();
       if (gid && !isEmail(gid)) { toast('Enter the Google ID as a full email address, e.g. name@gmail.com'); $('#sGoogle').focus(); return; }
@@ -850,7 +852,7 @@
     $('#sGoogle').addEventListener('change', () => { if (!S.settings.session) setupGoogle(); });
     $('#testBtn').addEventListener('click', async () => {
       const st = $('#connStatus');
-      const url = $('#sUrl').value.trim();
+      const url = $('#sUrl').value.trim() || BUILT_IN_URL;
       const body = S.settings.session && url === S.settings.url ? { session: S.settings.session } : { key: $('#sKey').value.trim() };
       st.textContent = 'Testing…';
       try {
@@ -881,6 +883,7 @@
 
   async function init() {
     S.settings = Object.assign(S.settings, await KV.get('settings', {}));
+    if (!S.settings.url) S.settings.url = window.__RUBBER_URL || BUILT_IN_URL;   // no setup needed: use your sheet
     S.entries = await KV.get('entries', []);
     S.workers = await KV.get('workers', []);
     S.queue = await KV.get('queue', []);
