@@ -18,7 +18,7 @@
     settings: { url: '', key: '', session: '', email: '', googleId: 'prakashrtvm@gmail.com', density: 1, autosave: 3, readback: false },
     entries: [],     // all entries (incl. Deleted status)
     workers: [],
-    queue: [],       // pending ops for the sheet
+    queue: [],       // pending worker changes for the sheet (entries wait on the phone until Sync)
     sheetUrl: '',
     session: [],     // ids saved in this session (newest first)
     pending: null,   // entry on the confirmation card
@@ -31,13 +31,15 @@
   ]);
   const active = () => S.entries.filter(e => e.status !== 'Deleted');
   const ctx = () => ({ density: +S.settings.density || 1, workers: S.workers, today: new Date() });
-  const pendingIds = () => new Set(S.queue.map(o => (o.entry && o.entry.id) || o.id).filter(Boolean));
+  // Entries stay on the phone until you tap Sync. A synced entry is marked archived (e.archived = time)
+  // and stays on the phone, read-only, until you remove it yourself.
+  const unsynced = () => S.entries.filter(e => !e.archived && e.status !== 'Deleted');
+  const pendingCount = () => unsynced().length + S.queue.filter(o => o.op === 'worker').length;
+  const pendingIds = () => new Set(unsynced().map(e => e.id));
   // Your sheet's backend (Rubber Business Ledger, prakashrtvm@gmail.com). It only answers allowed, signed-in Google accounts.
   const BUILT_IN_URL = 'https://script.google.com/macros/s/AKfycby6ynQDPXsDvKnNFn-sJv5UfY7M6-H3L-zM03cP-LWtT9ColLfDa9bgwLFKnbs71yN_/exec';
-  // Saved to the sheet (nothing left to send) = archived: kept on the phone for reports, but read-only.
-  // Entries saved in this voice session stay correctable (Undo / "delete last") until the app is closed.
-  const isArchived = e => !!(e && e.id && S.settings.url && !pendingIds().has(e.id));
-  const isLocked = e => isArchived(e) && !S.session.includes(e.id);
+  const isArchived = e => !!(e && e.archived);
+  const isLocked = isArchived;
   const configured = () => !!(S.settings.url && (S.settings.session || S.settings.key));
 
   // ---------------- backend ----------------
@@ -68,40 +70,42 @@
     return data;
   }
 
-  async function flush() {
-    if (!S.queue.length) return true;
-    if (!navigator.onLine || !configured()) return false;
-    const ops = S.queue.slice(0, 50);
-    await call('sync', { ops });
-    S.queue = S.queue.slice(ops.length);
-    await KV.set('queue', S.queue);
-    return S.queue.length ? flush() : true;
-  }
-
-  async function sync(pull) {
-    if (S.syncing) return;
-    if (!configured()) { renderSyncBadge(); return; }
-    S.syncing = true; renderSyncBadge();
+  // On-demand only: runs when you tap Sync. Sends worker changes, then every entry not yet archived
+  // (in batches of 50), and marks each sent entry archived.
+  async function sync() {
+    if (S.syncing) return 0;
+    if (!configured()) { S.lastSyncError = 'not-signed-in'; renderSyncBadge(); return 0; }
+    if (!navigator.onLine) { S.lastSyncError = 'offline'; renderSyncBadge(); return 0; }
+    S.syncing = true; S.lastSyncError = ''; renderSyncBadge();
+    let sent = 0;
     try {
-      await flush();
-      if (pull) {
-        const data = await call('list');
-        const keep = pendingIds();
-        const local = new Map(S.entries.filter(e => keep.has(e.id)).map(e => [e.id, e]));
-        S.entries = data.entries.map(e => local.get(e.id) || cleanEntry(e));
-        local.forEach((e, id) => { if (!S.entries.find(x => x.id === id)) S.entries.push(e); });
-        if (!S.queue.some(o => o.op === 'worker')) S.workers = data.workers || [];
-        S.sheetUrl = data.sheetUrl || S.sheetUrl;
-        await persist();
+      const wops = S.queue.filter(o => o.op === 'worker');
+      if (wops.length) {
+        await call('sync', { ops: wops });
+        S.queue = S.queue.filter(o => !wops.includes(o)); await KV.set('queue', S.queue);
       }
-      S.lastSyncError = '';
+      const todo = unsynced();
+      for (let i = 0; i < todo.length; i += 50) {
+        const batch = todo.slice(i, i + 50).map(e => ({ e, snap: JSON.stringify(e) }));
+        await call('sync', { ops: batch.map(b => ({ op: 'add', entry: JSON.parse(b.snap) })) });
+        const at = new Date().toISOString();
+        batch.forEach(b => { if (JSON.stringify(b.e) === b.snap) { b.e.archived = at; sent++; } });   // edited meanwhile: goes next time
+        await KV.set('entries', S.entries);
+      }
+      if (!S.sheetUrl) { try { const p = await call('ping'); S.sheetUrl = p.sheetUrl || ''; await KV.set('sheetUrl', S.sheetUrl); } catch (e) { /* link is optional */ } }
     } catch (err) {
-      S.lastSyncError = err.message === 'not-configured' ? '' : (err.name === 'AbortError' ? 'timeout' : err.message);
+      S.lastSyncError = err.message === 'not-configured' ? 'not-signed-in' : (err.name === 'AbortError' ? 'timeout' : err.message);
     } finally {
-      S.syncing = false; renderSyncBadge(); refreshViews();
-      // entries saved while this sync was running go out now
-      if (S.queue.length && !S.lastSyncError && navigator.onLine) setTimeout(() => sync(false), 300);
+      S.syncing = false; renderSyncBadge(); refreshViews(); renderSession();
     }
+    return sent;
+  }
+  async function syncNow() {
+    if (!configured()) { toast('Sign in with Google first, then tap Sync'); show('settings'); return; }
+    if (!pendingCount()) { toast('Nothing to sync: everything is archived in the sheet'); return; }
+    const n = await sync();
+    if (S.lastSyncError) toast('Sync failed: ' + (S.lastSyncError === 'offline' ? 'no internet connection' : S.lastSyncError) + '. Entries are safe on the phone.');
+    else toast(`Synced ${n} entr${n === 1 ? 'y' : 'ies'} to the FamilyBusiness sheet: marked archived`);
   }
 
   function cleanEntry(e) {
@@ -110,39 +114,40 @@
       id: String(e.id), date: String(e.date || ''), month: e.month || String(e.date || '').slice(0, 7), fy: e.fy || P.financialYear(e.date),
       type: e.type || '', category: e.category || '', quantity: n(e.quantity), unit: e.unit || '', drc: n(e.drc), dryKg: n(e.dryKg),
       rate: n(e.rate), amount: n(e.amount), party: e.party || '', paymentMode: e.paymentMode || '', notes: e.notes || '',
-      voiceText: e.voiceText || '', createdAt: e.createdAt || '', status: e.status || 'Active'
+      voiceText: e.voiceText || '', createdAt: e.createdAt || '', status: e.status || 'Active', archived: e.archived || ''
     };
   }
 
-  function queueOp(op) { S.queue.push(op); persist(); renderSyncBadge(); sync(false); }
+  function queueOp(op) { S.queue.push(op); persist(); renderSyncBadge(); }   // sent on the next Sync
 
   // ---------------- entry operations ----------------
   function saveNew(e) {
-    const entry = cleanEntry(Object.assign({}, e, { id: e.id || uuid(), createdAt: new Date().toISOString(), status: 'Active' }));
+    const entry = cleanEntry(Object.assign({}, e, { id: e.id || uuid(), createdAt: new Date().toISOString(), status: 'Active', archived: '' }));
     S.entries.push(entry);
-    queueOp({ op: 'add', entry });
+    persist(); renderSyncBadge();   // kept on the phone until Sync
     return entry;
   }
   function updateEntry(e) {
-    const entry = cleanEntry(e);
+    const entry = cleanEntry(Object.assign({}, e, { archived: '' }));
     const i = S.entries.findIndex(x => x.id === entry.id);
     if (i >= 0) S.entries[i] = entry; else S.entries.push(entry);
-    queueOp({ op: 'update', entry });
+    persist(); renderSyncBadge();
     return entry;
   }
-  function setStatus(ids, status) {
-    ids.forEach(id => {
-      const e = S.entries.find(x => x.id === id);
-      if (e) { e.status = status; queueOp({ op: status === 'Deleted' ? 'delete' : 'restore', id }); }
-    });
-    refreshViews();
-  }
+  // Deleting removes entries from the phone. Unsynced ones never reach the sheet; archived ones stay in the sheet.
   function deleteWithUndo(ids, label) {
     if (!ids.length) { toast('Nothing to delete'); return; }
-    setStatus(ids, 'Deleted');
+    const removed = S.entries.filter(e => ids.includes(e.id));
+    const wasSession = S.session.filter(id => ids.includes(id));
+    S.entries = S.entries.filter(e => !ids.includes(e.id));
     S.session = S.session.filter(id => !ids.includes(id));
-    renderSession();
-    toast(label || `Deleted ${ids.length} entr${ids.length > 1 ? 'ies' : 'y'}`, () => { setStatus(ids, 'Active'); ids.forEach(id => S.session.unshift(id)); renderSession(); });
+    persist(); renderSession(); renderSyncBadge(); refreshViews();
+    const arch = removed.filter(e => e.archived).length;
+    const what = label || `Deleted ${removed.length} entr${removed.length > 1 ? 'ies' : 'y'}`;
+    toast(arch ? `${what} from the phone (still in the sheet)` : what, () => {
+      S.entries.push(...removed); S.session.unshift(...wasSession);
+      persist(); renderSession(); renderSyncBadge(); refreshViews();
+    });
   }
   function lastSavedIds(n) {
     const ids = S.session.filter(id => { const e = S.entries.find(x => x.id === id); return e && e.status !== 'Deleted'; });
@@ -401,7 +406,7 @@
 
   // ---------------- lists ----------------
   function entryLi(e) {
-    const unsynced = pendingIds().has(e.id) ? '<span class="unsynced">not synced</span>' : isArchived(e) && e.status !== 'Deleted' ? '<span class="archived" title="Archived in the FamilyBusiness sheet">✓ archived</span>' : '';
+    const unsynced = isArchived(e) ? '<span class="archived" title="Archived in the FamilyBusiness sheet">✓ archived</span>' : '<span class="unsynced">on phone</span>';
     const amt = e.type === 'Production' ? `${num(e.dryKg != null ? e.dryKg : e.quantity)} kg` : inr(e.amount);
     const detail = [describeQty(e), e.party, e.paymentMode].filter(Boolean).join(' · ');
     return `<li data-id="${esc(e.id)}" class="${e.status === 'Deleted' ? 'deleted' : ''}">
@@ -477,7 +482,8 @@
     $('#ePay').value = edEntry.paymentMode || '';
     $('#eNotes').value = edEntry.notes || '';
     $('#eVoice').textContent = edEntry.voiceText ? `Voice: "${edEntry.voiceText}"` : '';
-    $('#eDelete').hidden = !entry || isPending || locked;
+    $('#eDelete').hidden = !entry || isPending;
+    $('#eDelete').textContent = locked ? 'Remove from phone' : 'Delete';
     const isLatex = edEntry.category === 'Latex' || edEntry.category === 'Latex sale';
     const base = isLatex ? edEntry.dryKg : edEntry.quantity;
     // amount is "automatic" if it is empty or was calculated from rate × quantity
@@ -729,7 +735,7 @@
       await persist();
       toast(`Signed in as ${r.email}`);
       S.lastSyncError = '';
-      renderAuth(); renderSyncBadge(); sync(true);
+      renderAuth(); renderSyncBadge();
     } catch (err) {
       authStatus('Could not reach the Web App URL. Check it and try again.');
     }
@@ -778,18 +784,20 @@
   function renderSyncBadge() {
     const b = $('#syncBadge');
     b.classList.remove('pending', 'error');
-    if (!configured()) { b.textContent = S.settings.url ? 'Signed out' : 'Not connected'; b.classList.add('error'); }
-    else if (S.syncing) { b.textContent = 'Syncing…'; }
-    else if (S.lastSyncError) { b.textContent = S.queue.length ? `${S.queue.length} not synced` : 'Sync error'; b.classList.add('error'); b.title = S.lastSyncError; }
-    else if (S.queue.length) { b.textContent = `${S.queue.length} not synced`; b.classList.add('pending'); }
-    else { b.textContent = 'Synced'; }
+    const n = pendingCount();
+    if (S.syncing) { b.textContent = 'Syncing…'; }
+    else if (n) { b.textContent = `Sync ${n}`; b.classList.add(S.lastSyncError ? 'error' : 'pending'); b.title = S.lastSyncError || 'Tap to send to the Google Sheet'; }
+    else if (!configured()) { b.textContent = 'Signed out'; b.classList.add('error'); }
+    else { b.textContent = 'All archived'; b.title = ''; }
+    const hs = $('#homeSync');
+    if (hs) { hs.hidden = !n || S.syncing; hs.textContent = `Sync ${n} entr${n === 1 ? 'y' : 'ies'} to Google Sheet`; }
     renderBanner();
   }
   function renderBanner() {
     const bn = $('#banner');
     let msg = '';
     if (!S.settings.url) msg = 'Connect your Google Sheet in <button type="button" data-go="settings">Settings</button> to save entries to Drive. Entries are kept on this phone until then.';
-    else if (!configured()) msg = 'Sign in with Google in <button type="button" data-go="settings">Settings</button> to sync. Entries are kept on this phone until then.';
+    else if (!configured()) msg = 'Entries are kept on this phone. To send them to the Google Sheet, sign in with Google in <button type="button" data-go="settings">Settings</button>, then tap Sync.';
     else if (S.lastSyncError === 'unauthorized') msg = 'The access key was rejected. Check it in <button type="button" data-go="settings">Settings</button>.';
     else if (otherIOSBrowser || !SR) msg = esc(voiceProblem('')) + ' <button type="button" data-go="settings">How to fix</button>';
     bn.innerHTML = msg; bn.hidden = !msg;
@@ -834,8 +842,9 @@
       handleUtterance(v);
     });
     $('#dictInput').addEventListener('input', () => { if (S.pending) pauseCountdown(); });
-    $('#syncBadge').addEventListener('click', () => sync(true));
-    $('#syncBtn').addEventListener('click', async () => { await sync(true); toast(S.lastSyncError ? 'Sync failed: ' + S.lastSyncError : 'Synced with Google Sheet'); });
+    $('#syncBadge').addEventListener('click', syncNow);
+    $('#syncBtn').addEventListener('click', syncNow);
+    $('#homeSync').addEventListener('click', syncNow);
     $('#csvBtn').addEventListener('click', exportCSV);
     $('#addBtn').addEventListener('click', () => openEditor(null, false));
     ['#fMonth', '#fType'].forEach(s => $(s).addEventListener('change', () => { if (s === '#fType') fillCategoryOptions($('#fCat'), $('#fType').value, '', 'All categories'); renderEntries(); }));
@@ -855,7 +864,7 @@
       S.settings.url = newUrl; S.settings.key = $('#sKey').value.trim();
       S.settings.density = +$('#sDensity').value || 1; S.settings.autosave = Math.max(0, +$('#sAuto').value || 0);
       S.settings.readback = $('#sReadback').checked;
-      await persist(); toast('Settings saved'); renderAuth(); renderSyncBadge(); sync(true);
+      await persist(); toast('Settings saved'); renderAuth(); renderSyncBadge();
     });
     $('#signOutBtn').addEventListener('click', signOut);
     $('#sGoogle').addEventListener('change', () => { if (!S.settings.session) setupGoogle(); });
@@ -886,8 +895,8 @@
     $('#wCancel').addEventListener('click', () => editWorker(null));
     wireEditor();
 
-    window.addEventListener('online', () => sync(true));
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync(true); else stopListening(); });
+    window.addEventListener('online', renderSyncBadge);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') stopListening(); });
   }
 
   async function init() {
@@ -896,17 +905,21 @@
     S.entries = await KV.get('entries', []);
     S.workers = await KV.get('workers', []);
     S.queue = await KV.get('queue', []);
+    // from the older auto-sync version: entries not waiting in its queue were already in the sheet
+    const legacy = new Set(S.queue.map(o => (o.entry && o.entry.id) || o.id).filter(Boolean));
+    S.entries = S.entries.filter(e => e.status !== 'Deleted');
+    S.entries.forEach(e => { if (e.archived === undefined) e.archived = legacy.has(e.id) ? '' : (e.createdAt || 'earlier'); });
+    S.queue = S.queue.filter(o => o.op === 'worker');
     S.sheetUrl = await KV.get('sheetUrl', '');
     const m = today().slice(0, 7);
     $('#fMonth').value = m; $('#rMonth').value = m;
     fillCategoryOptions($('#fCat'), '', '', 'All categories');
     wire(); renderSyncBadge(); renderVoiceSupport(); show('home');
-    sync(true);
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
     window.addEventListener('load', () => { if (currentView === 'reports') renderReports(); });
   }
 
   // test hook
-  window.__rubber = { S, handleUtterance, commitPending, sync, show };
+  window.__rubber = { S, handleUtterance, commitPending, sync, syncNow, show };
   init();
 })();
