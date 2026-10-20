@@ -18,9 +18,9 @@ const BOOK_NAME = 'FamilyBusiness';   // the Google Sheet in your Drive: used if
 const TX = 'Transactions', WK = 'Workers', CAT = 'Categories', SUM = 'Summary', SET = 'Settings';
 
 const TX_HEADERS = ['ID', 'Date', 'Month', 'Financial year', 'Type', 'Category', 'Quantity', 'Unit', 'DRC %',
-  'Dry rubber kg', 'Rate (₹/unit)', 'Amount (₹)', 'Party / Worker', 'Payment mode', 'Notes', 'Voice text', 'Created at', 'Status'];
+  'Dry rubber kg', 'Rate (₹/unit)', 'Amount (₹)', 'Party / Worker', 'Payment mode', 'Notes', 'Voice text', 'Created at', 'Status', 'Item'];   // new columns go at the end
 const TX_KEYS = ['id', 'date', 'month', 'fy', 'type', 'category', 'quantity', 'unit', 'drc',
-  'dryKg', 'rate', 'amount', 'party', 'paymentMode', 'notes', 'voiceText', 'createdAt', 'status'];
+  'dryKg', 'rate', 'amount', 'party', 'paymentMode', 'notes', 'voiceText', 'createdAt', 'status', 'item'];
 const NUMERIC = ['quantity', 'drc', 'dryKg', 'rate', 'amount'];
 
 const WK_HEADERS = ['Worker ID', 'Name', 'Role', 'Wage basis', 'Default rate (₹)', 'Active'];
