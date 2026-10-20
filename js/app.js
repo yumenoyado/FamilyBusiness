@@ -206,6 +206,11 @@
   let recording = false, baseText = '', emptyRestarts = 0;
   const joinText = (a, b) => [a, b].map(x => (x || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
 
+  // The entry box grows with the words (3 lines minimum, up to 10, then it scrolls) and keeps the newest words in view.
+  function fitDict() {
+    const t = $('#dictInput'); if (!t) return;
+    t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; t.scrollTop = t.scrollHeight;
+  }
   function startListening() {
     if (!SR || otherIOSBrowser) { lastVoiceError = 'unsupported'; setMic(false, voiceProblem('')); renderVoiceSupport(); return; }
     stopListening();
@@ -236,7 +241,7 @@
         for (let i = 0; i < ev.results.length; i++) { parts.push(ev.results[i][0].transcript.trim()); lastFinal = ev.results[i].isFinal; }
         sessionText = parts.filter(Boolean).join(' ');
         const shown = P.applySpokenDeletes(joinText(baseText, sessionText));   // "delete" removes the previous word at once
-        $('#dictInput').value = shown + (lastFinal && shown ? ' ' : ''); $('#dictInput').scrollTop = 1e6;   // keep the newest words in view
+        $('#dictInput').value = shown + (lastFinal && shown ? ' ' : ''); fitDict();
         if (S.pending) pauseCountdown();
       };
       rec.onerror = ev => {
@@ -252,7 +257,7 @@
         if (rec === thisRec) rec = null;
         if (!recording) return;   // stopped by Go or the mic button: leave the box as it is
         baseText = P.applySpokenDeletes(joinText(baseText, sessionText));
-        $('#dictInput').value = baseText ? baseText + ' ' : '';   // pause = space before the next words
+        $('#dictInput').value = baseText ? baseText + ' ' : ''; fitDict();   // pause = space before the next words
         emptyRestarts = heard ? 0 : emptyRestarts + 1;
         if (emptyRestarts > 8) { recording = false; setMic(false, baseText ? 'Paused. Tap Go to use this text, or the mic to keep talking' : 'Didn\'t hear anything. Tap the mic to try again'); return; }
         setTimeout(() => { if (recording && !rec) beginSession(false); }, 150);
@@ -490,6 +495,7 @@
     edAmountAuto = edEntry.amount == null || (edEntry.rate != null && base != null && Math.round(base * edEntry.rate) === Math.round(edEntry.amount));
     editorRecalc(null);
     $('#editor').showModal();
+    $('#edTitle').focus({ preventScroll: true });   // never open the date picker or keyboard by itself
   }
   function readEditor() {
     const n = id => { const v = $(id).value; return v === '' ? null : +v; };
@@ -838,10 +844,10 @@
       stopListening();
       const v = $('#dictInput').value.trim();
       if (!v) { setMic(false); return; }
-      $('#dictInput').value = ''; baseText = ''; lastInputWasVoice = wasVoice;
+      $('#dictInput').value = ''; fitDict(); baseText = ''; lastInputWasVoice = wasVoice;
       handleUtterance(v);
     });
-    $('#dictInput').addEventListener('input', () => { if (S.pending) pauseCountdown(); });
+    $('#dictInput').addEventListener('input', () => { fitDict(); if (S.pending) pauseCountdown(); });
     $('#dictInput').addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('#dictForm').requestSubmit(); } });   // Enter = Go
     $('#syncBadge').addEventListener('click', syncNow);
     $('#syncBtn').addEventListener('click', syncNow);
