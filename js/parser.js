@@ -382,7 +382,18 @@
     return recompute(e, ctx, field);
   }
 
-  const api = { parse, parseCommand, applyField, recompute, validate, normalize, wordsToNumbers, financialYear,
+  // While dictating, the spoken word "delete" removes the word before it ("40 kg delete 50 kg" → "40 50 kg").
+  // A "delete" with no word before it is kept, so "delete", "delete last 3", "delete amount" still work as commands.
+  function applySpokenDeletes(text) {
+    const out = [];
+    for (const w of String(text || '').split(/\s+/).filter(Boolean)) {
+      if (/^delete[.,!?]*$/i.test(w) && out.length && !/^delete[.,!?]*$/i.test(out[out.length - 1])) out.pop();
+      else out.push(w);
+    }
+    return out.join(' ');
+  }
+
+  const api = { parse, parseCommand, applySpokenDeletes, applyField, recompute, validate, normalize, wordsToNumbers, financialYear,
     isoDate, CATEGORIES, WAGE_CATEGORIES, UNITS, PAYMENT_MODES, typeOfCategory };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.RubberParser = api;

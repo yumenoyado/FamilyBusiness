@@ -224,7 +224,7 @@
         let lastFinal = true;
         for (let i = 0; i < ev.results.length; i++) { parts.push(ev.results[i][0].transcript.trim()); lastFinal = ev.results[i].isFinal; }
         sessionText = parts.filter(Boolean).join(' ');
-        const shown = joinText(baseText, sessionText);
+        const shown = P.applySpokenDeletes(joinText(baseText, sessionText));   // "delete" removes the previous word at once
         $('#dictInput').value = shown + (lastFinal && shown ? ' ' : '');
         if (S.pending) pauseCountdown();
       };
@@ -240,7 +240,7 @@
         markStarted();
         if (rec === thisRec) rec = null;
         if (!recording) return;   // stopped by Go or the mic button: leave the box as it is
-        baseText = joinText(baseText, sessionText);
+        baseText = P.applySpokenDeletes(joinText(baseText, sessionText));
         $('#dictInput').value = baseText ? baseText + ' ' : '';   // pause = space before the next words
         emptyRestarts = heard ? 0 : emptyRestarts + 1;
         if (emptyRestarts > 8) { recording = false; setMic(false, baseText ? 'Paused. Tap Go to use this text, or the mic to keep talking' : 'Didn\'t hear anything. Tap the mic to try again'); return; }
