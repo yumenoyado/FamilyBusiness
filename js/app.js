@@ -15,7 +15,7 @@
 
   // ---------------- state ----------------
   const S = {
-    settings: { url: '', key: '', session: '', email: '', density: 1, autosave: 3, readback: false },
+    settings: { url: '', key: '', session: '', email: '', googleId: '', density: 1, autosave: 3, readback: false },
     entries: [],     // all entries (incl. Deleted status)
     workers: [],
     queue: [],       // pending ops for the sheet
@@ -639,14 +639,16 @@
 
   // ---------------- settings & workers ----------------
   function renderSettings() {
-    $('#sUrl').value = S.settings.url; $('#sKey').value = S.settings.key;
+    $('#sUrl').value = S.settings.url; $('#sKey').value = S.settings.key; $('#sGoogle').value = S.settings.googleId || '';
     renderAuth();
     $('#sDensity').value = S.settings.density; $('#sAuto').value = S.settings.autosave; $('#sReadback').checked = !!S.settings.readback;
     const link = $('#sheetLink'); link.hidden = !S.sheetUrl; if (S.sheetUrl) link.href = S.sheetUrl;
     renderWorkers(); renderVoiceSupport();
   }
   // ---------------- Google sign-in ----------------
-  let gisLoaded = null, gisClientId = '';
+  let gisLoaded = null, gisInit = '';
+  const wantedGoogleId = () => (($('#sGoogle') && $('#sGoogle').value) || S.settings.googleId || '').trim().toLowerCase();
+  const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const cfgCache = {};   // Web App URL -> OAuth client id ('' when not set up)
   function loadGis() {
     if (!gisLoaded) gisLoaded = new Promise((resolve, reject) => {
@@ -679,13 +681,16 @@
       const cfg = { clientId: cfgCache[url] };
       if (!cfg.clientId) { authStatus('Google sign-in is not set up in the script yet: add your OAuth Client ID to <b>Code.gs</b> (see README). Meanwhile you can use an access key.'); return; }
       await loadGis();
-      if (gisClientId !== cfg.clientId) {
-        google.accounts.id.initialize({ client_id: cfg.clientId, callback: onGoogleCredential, ux_mode: 'popup', auto_select: false, cancel_on_tap_outside: true });
-        gisClientId = cfg.clientId;
+      const hint = isEmail(wantedGoogleId()) ? wantedGoogleId() : '';
+      if (gisInit !== cfg.clientId + '|' + hint) {   // the Google ID from Settings is pre-selected in Google's account chooser
+        const opts = { client_id: cfg.clientId, callback: onGoogleCredential, ux_mode: 'popup', auto_select: false, cancel_on_tap_outside: true };
+        if (hint) opts.login_hint = hint;
+        google.accounts.id.initialize(opts);
+        gisInit = cfg.clientId + '|' + hint;
       }
       const box = $('#gBtn'); box.innerHTML = '';
       google.accounts.id.renderButton(box, { type: 'standard', theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', width: 260 });
-      if (!S.settings.key) authStatus('Sign in with the Google account that is allowed to use your sheet.');
+      if (!S.settings.key) authStatus(hint ? `Sign in with <b>${esc(hint)}</b>.` : 'Sign in with the Google account that is allowed to use your sheet.');
     } catch (err) {
       authStatus(err.message === 'gis-load' ? 'Could not load Google sign-in. Check the connection and open Settings again.' : 'Could not reach the Web App URL. Check it and try again.');
     }
@@ -693,6 +698,12 @@
   async function onGoogleCredential(resp) {
     const url = ($('#sUrl').value || S.settings.url || '').trim();
     authStatus('Signing in…');
+    const wanted = wantedGoogleId();
+    if (isEmail(wanted)) {   // stop early if a different account was picked in Google's chooser
+      let picked = '';
+      try { picked = String(JSON.parse(atob(resp.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).email || '').toLowerCase(); } catch (e) { /* the server checks anyway */ }
+      if (picked && picked !== wanted) { authStatus(`You picked <b>${esc(picked)}</b>, but the Google ID in Settings is <b>${esc(wanted)}</b>. Sign in again and choose ${esc(wanted)}, or change the Google ID.`); return; }
+    }
     try {
       const r = await post(url, { action: 'login', idToken: resp.credential });
       if (!r.ok) {
@@ -826,12 +837,17 @@
       ev.preventDefault();
       const newUrl = $('#sUrl').value.trim();
       if (newUrl !== S.settings.url) { S.settings.session = ''; S.settings.email = ''; }   // a different sheet needs a new sign-in
+      const gid = $('#sGoogle').value.trim().toLowerCase();
+      if (gid && !isEmail(gid)) { toast('Enter the Google ID as a full email address, e.g. name@gmail.com'); $('#sGoogle').focus(); return; }
+      if (gid && S.settings.email && S.settings.email.toLowerCase() !== gid) { S.settings.session = ''; S.settings.email = ''; }   // signed in with another account: sign in again
+      S.settings.googleId = gid;
       S.settings.url = newUrl; S.settings.key = $('#sKey').value.trim();
       S.settings.density = +$('#sDensity').value || 1; S.settings.autosave = Math.max(0, +$('#sAuto').value || 0);
       S.settings.readback = $('#sReadback').checked;
       await persist(); toast('Settings saved'); renderAuth(); renderSyncBadge(); sync(true);
     });
     $('#signOutBtn').addEventListener('click', signOut);
+    $('#sGoogle').addEventListener('change', () => { if (!S.settings.session) setupGoogle(); });
     $('#testBtn').addEventListener('click', async () => {
       const st = $('#connStatus');
       const url = $('#sUrl').value.trim();
