@@ -105,7 +105,8 @@ h3.sub { font-size: 14px; color: var(--muted); margin: 20px 0 8px; text-transfor
 .transcript { min-height: 1.5em; margin: 0; color: var(--muted); font-style: italic; }
 
 .dict { display: flex; gap: 8px; margin: 8px 0 14px; }
-.dict textarea { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; line-height: 1.4; resize: none; height: calc(3 * 1.4em + 22px); overflow-y: auto; }
+.dict textarea { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; line-height: 1.4; resize: none; min-height: calc(3 * 1.4em + 22px); max-height: calc(10 * 1.4em + 22px); overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#edTitle:focus { outline: none; }
 
 .entry-card { background: var(--surface); border: 2px solid var(--brand); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
 .entry-card .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
